@@ -1255,8 +1255,31 @@ def clear_cache() -> None:
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="SmartDeDupeV - Intelligent Video Deduplication Tool",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="""SmartDeDupeV - Intelligent Video Deduplication Tool
+
+This tool helps you find and manage duplicate videos, even if they have different names,
+resolutions, or encodings. It uses perceptual hashing and content analysis to identify
+duplicates with high accuracy.
+
+Examples:
+  # Basic usage - generate a report of duplicates
+  videodedup.py /path/to/videos
+
+  # Scan multiple directories and generate HTML report
+  videodedup.py /videos/movies /videos/shows --output-format html --html-report-dir ./report
+
+  # Interactive mode to review and handle duplicates
+  videodedup.py /path/to/videos --action interactive
+
+  # Move duplicates to a separate directory, keeping originals
+  videodedup.py /path/to/videos --action move --target-dir ./duplicates
+
+  # Generate a script to handle duplicates later
+  videodedup.py /path/to/videos --action script --script-type bash --output-file cleanup.sh
+
+  # Delete duplicates (requires --force-delete for safety)
+  videodedup.py /path/to/videos --action delete --force-delete""",
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
     
     # Input directories
@@ -1284,9 +1307,10 @@ def main():
     analysis_group.add_argument(
         '--hash-algorithm', 
         type=str, 
-        choices=['phash', 'dhash', 'whash', 'average_hash'], 
+        choices=['phash', 'dhash', 'whash', 'average_hash'],
+        metavar='ALGORITHM',
         default='phash',
-        help='Perceptual hash algorithm to use'
+        help='Perceptual hash algorithm to use (default: phash)'
     )
     analysis_group.add_argument(
         '--recursive', 
@@ -1306,9 +1330,10 @@ def main():
     action_group.add_argument(
         '--action', 
         type=str, 
-        choices=['report', 'interactive', 'move', 'symlink', 'hardlink', 'delete', 'script'], 
+        choices=['report', 'interactive', 'move', 'symlink', 'hardlink', 'delete', 'script'],
+        metavar='ACTION',
         default='report',
-        help='Action to take for duplicates'
+        help='Action to take for duplicates (default: report)'
     )
     action_group.add_argument(
         '--target-dir', 
@@ -1323,9 +1348,10 @@ def main():
     action_group.add_argument(
         '--script-type', 
         type=str, 
-        choices=['bash', 'powershell', 'python'], 
+        choices=['bash', 'powershell', 'python'],
+        metavar='TYPE',
         default='bash',
-        help='Type of script to generate'
+        help='Type of script to generate (default: bash)'
     )
     
     # Output options
@@ -1333,9 +1359,10 @@ def main():
     output_group.add_argument(
         '--output-format', 
         type=str, 
-        choices=['text', 'json', 'csv', 'html'], 
+        choices=['text', 'json', 'csv', 'html'],
+        metavar='FORMAT',
         default='text',
-        help='Output format for report'
+        help='Output format for report (default: text)'
     )
     output_group.add_argument(
         '--html-report-dir',
@@ -1353,7 +1380,8 @@ def main():
     misc_group.add_argument(
         '--log-level', 
         type=str, 
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
+        metavar='LEVEL',
         default='INFO',
         help='Set the logging level'
     )
