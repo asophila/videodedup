@@ -214,6 +214,106 @@ Provides an interactive CLI interface to:
 imagededup /path/to/images --action move --target-dir /path/to/duplicates
 ```
 
+## 🔄 Running Both Tools Together
+
+### Sequential Execution
+
+You can run both tools on the same directory to find duplicates of both images and videos. The tools are designed to work together:
+
+- Each tool only processes its relevant file types
+- Actions and reports are compatible
+- Cache is managed separately for each tool
+
+Basic sequential execution:
+```bash
+# Generate reports for both images and videos
+imagededup /path/to/directory --output-file images-report.txt
+videodedup /path/to/directory --output-file videos-report.txt
+
+# Interactive mode for both types
+imagededup /path/to/directory --action interactive
+videodedup /path/to/directory --action interactive
+
+# Move duplicates to separate directories
+imagededup /path/to/directory --action move --target-dir /path/to/image-duplicates
+videodedup /path/to/directory --action move --target-dir /path/to/video-duplicates
+```
+
+### Shell Script Helper
+
+Here's a helpful shell script (`mediadedup.sh`) that runs both tools with the same parameters:
+
+```bash
+#!/bin/bash
+
+# Check if at least a directory is provided
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 DIRECTORY [OPTIONS]"
+    echo "Example: $0 /path/to/media --action move --target-dir /path/to/duplicates"
+    exit 1
+fi
+
+# Get the directory from first argument
+DIR="$1"
+shift  # Remove the directory from arguments
+
+# Create separate target directories if needed
+if [[ "$*" == *"--target-dir"* ]]; then
+    for arg in "$@"; do
+        if [ "$prev_arg" = "--target-dir" ]; then
+            TARGET_DIR="$arg"
+            # Replace the target dir in the arguments for each tool
+            IMAGE_ARGS=${@//$TARGET_DIR/$TARGET_DIR\/images}
+            VIDEO_ARGS=${@//$TARGET_DIR/$TARGET_DIR\/videos}
+            break
+        fi
+        prev_arg="$arg"
+    done
+else
+    IMAGE_ARGS="$@"
+    VIDEO_ARGS="$@"
+fi
+
+# Run image deduplication
+echo "🖼️ Running image deduplication..."
+imagededup "$DIR" $IMAGE_ARGS
+
+# Run video deduplication
+echo "🎥 Running video deduplication..."
+videodedup "$DIR" $VIDEO_ARGS
+```
+
+Make the script executable and use it:
+```bash
+chmod +x mediadedup.sh
+
+# Basic usage
+./mediadedup.sh /path/to/media
+
+# With options
+./mediadedup.sh /path/to/media --action move --target-dir /path/to/duplicates
+```
+
+When using the script with `--target-dir`, it automatically creates separate subdirectories for images and videos:
+```
+/path/to/duplicates/
+├── images/
+│   ├── group_1/
+│   └── group_2/
+└── videos/
+    ├── group_1/
+    └── group_2/
+```
+
+### Report Compatibility
+
+Both tools support the same report formats with media-specific information:
+
+- **Text Reports**: Human-readable format with media-specific details
+- **JSON Reports**: Can be combined programmatically for unified analysis
+- **CSV Reports**: Compatible format for spreadsheet analysis
+- **HTML Reports**: Separate reports with appropriate thumbnails and previews
+
 ## 📚 Command Reference
 
 ### Common Options
