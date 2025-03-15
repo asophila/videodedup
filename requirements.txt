@@ -1,13 +1,17 @@
-# Core dependencies
+# Core dependencies for both tools
 numpy>=1.19.0
 Pillow>=8.0.0
 imagehash>=4.2.0
 
-# Optional dependencies for nicer UI
-tqdm>=4.50.0
-colorama>=0.4.4  # For Windows color support
-
+# VideoDeDup specific dependencies
 # Note: ffmpeg and ffprobe must be installed separately
 # On Debian/Ubuntu: sudo apt-get install ffmpeg
 # On macOS with Homebrew: brew install ffmpeg
 # On Windows: Download from https://ffmpeg.org/download.html
+
+# ImageDeDup specific dependencies
+# None - uses only core dependencies
+
+# Optional dependencies for both tools
+tqdm>=4.50.0      # Progress bars
+colorama>=0.4.4   # Windows color support
