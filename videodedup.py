@@ -421,6 +421,20 @@ def load_video_metadata(video: VideoFile) -> VideoFile:
         logger.warning(f"Error loading metadata for {video.path}: {e}")
         return None
 
+def _process_video_frames(video: VideoFile, frame_positions: List[float], hash_algorithm: str) -> VideoFile:
+    """Process a single video to extract frame hashes."""
+    try:
+        # Adjust frame positions based on video duration
+        actual_positions = [pos * video.duration for pos in frame_positions 
+                           if 0 <= pos <= 1.0]
+        
+        # Extract frame hashes
+        video.extract_frame_hashes(actual_positions, hash_algorithm)
+        return video
+    except Exception as e:
+        logger.warning(f"Error extracting fingerprints from {video.path}: {e}")
+        return video
+
 def extract_video_fingerprints(videos: List[VideoFile], 
                               frame_positions: List[float] = None,
                               hash_algorithm: str = 'phash') -> List[VideoFile]:
@@ -429,22 +443,14 @@ def extract_video_fingerprints(videos: List[VideoFile],
         # Default to sampling at beginning, 25%, 50%, 75% and end
         frame_positions = [0.0, 0.25, 0.5, 0.75, 1.0]
     
-    def _process_video(video):
-        try:
-            # Adjust frame positions based on video duration
-            actual_positions = [pos * video.duration for pos in frame_positions 
-                               if 0 <= pos <= 1.0]
-            
-            # Extract frame hashes
-            video.extract_frame_hashes(actual_positions, hash_algorithm)
-            return video
-        except Exception as e:
-            logger.warning(f"Error extracting fingerprints from {video.path}: {e}")
-            return video
+    # Create a function with preset arguments
+    process_func = partial(_process_video_frames, 
+                          frame_positions=frame_positions,
+                          hash_algorithm=hash_algorithm)
     
     # Process videos in parallel
     with ProcessPoolExecutor() as executor:
-        processed_videos = list(executor.map(_process_video, videos))
+        processed_videos = list(executor.map(process_func, videos))
     
     return processed_videos
 
