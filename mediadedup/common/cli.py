@@ -4,8 +4,24 @@ Common CLI argument handling for media deduplication.
 
 import argparse
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Sequence
 from . import utils
+
+class CustomHelpFormatter(argparse.RawTextHelpFormatter):
+    """Custom formatter to improve the display of argument choices."""
+    
+    def _format_action_invocation(self, action):
+        if not action.option_strings or action.nargs == 0:
+            return super()._format_action_invocation(action)
+        
+        default = self._get_default_metavar_for_optional(action)
+        args_string = self._format_args(action, default)
+        
+        # Format choices with proper spacing
+        if action.choices:
+            args_string = '{' + ', '.join(str(c) for c in action.choices) + '}'
+            
+        return ', '.join(action.option_strings) + ' ' + args_string
 
 class BaseArgumentParser:
     """Base argument parser with common options."""
@@ -14,7 +30,7 @@ class BaseArgumentParser:
         """Initialize parser with description."""
         self.parser = argparse.ArgumentParser(
             description=description,
-            formatter_class=argparse.RawDescriptionHelpFormatter
+            formatter_class=CustomHelpFormatter
         )
         self._add_common_arguments()
     
@@ -40,9 +56,8 @@ class BaseArgumentParser:
             '--hash-algorithm', 
             type=str, 
             choices=['phash', 'dhash', 'whash', 'average_hash'],
-            metavar='ALGORITHM',
             default='phash',
-            help='Perceptual hash algorithm to use (default: phash)'
+            help='Perceptual hash algorithm to use. Options: phash, dhash, whash, average_hash (default: phash)'
         )
         analysis_group.add_argument(
             '--recursive', 
@@ -63,9 +78,16 @@ class BaseArgumentParser:
             '--action', 
             type=str, 
             choices=['report', 'interactive', 'move', 'symlink', 'hardlink', 'delete', 'script'],
-            metavar='ACTION',
             default='report',
-            help='Action to take for duplicates (default: report)'
+            help='Action to take for duplicates. Options:\n' +
+                 '  report      - Display duplicate files without modifying them\n' +
+                 '  interactive - Interactively choose which duplicates to handle\n' +
+                 '  move        - Move duplicate files to target directory\n' +
+                 '  symlink     - Replace duplicates with symbolic links\n' +
+                 '  hardlink    - Replace duplicates with hard links\n' +
+                 '  delete      - Delete duplicate files (requires --force-delete)\n' +
+                 '  script      - Generate a script to handle duplicates\n' +
+                 '(default: report)'
         )
         action_group.add_argument(
             '--target-dir', 
@@ -81,9 +103,8 @@ class BaseArgumentParser:
             '--script-type', 
             type=str, 
             choices=['bash', 'powershell', 'python'],
-            metavar='TYPE',
             default='bash',
-            help='Type of script to generate (default: bash)'
+            help='Type of script to generate. Options: bash, powershell, python (default: bash)'
         )
         
         # Output options
@@ -92,9 +113,8 @@ class BaseArgumentParser:
             '--output-format', 
             type=str, 
             choices=['text', 'json', 'csv', 'html'],
-            metavar='FORMAT',
             default='text',
-            help='Output format for report (default: text)'
+            help='Output format for report. Options: text, json, csv, html (default: text)'
         )
         output_group.add_argument(
             '--html-report-dir',
