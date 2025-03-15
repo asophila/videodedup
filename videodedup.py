@@ -150,6 +150,10 @@ if not FFMPEG_AVAILABLE:
     sys.exit(1)
 
 # Configure logging
+# Add custom VERBOSE level between INFO and DEBUG
+logging.VERBOSE = 15  # Between INFO (20) and DEBUG (10)
+logging.addLevelName(logging.VERBOSE, "VERBOSE")
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
