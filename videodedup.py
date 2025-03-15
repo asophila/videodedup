@@ -442,14 +442,23 @@ def group_by_duration(videos: List[VideoFile], threshold: float = 1.0) -> Dict[s
             if i % 10 == 0:  # Log progress every 10 videos
                 logger.debug(f"Processing video {i+1}/{len(videos)}")
             if video and video.duration > 0:
-                # Create a duration key with a precision relative to the threshold
-                # e.g., with 1% threshold, round to the nearest 1% of the duration
-                duration_key = f"{video.duration:.1f}"
-                
-                if duration_key not in duration_groups:
-                    duration_groups[duration_key] = []
+                # Find or create a suitable duration group
+                duration_found = False
+                for key in duration_groups.keys():
+                    base_duration = float(key)
+                    # Calculate allowed duration range based on threshold
+                    min_duration = base_duration * (1 - threshold/100)
+                    max_duration = base_duration * (1 + threshold/100)
                     
-                duration_groups[duration_key].append(video)
+                    if min_duration <= video.duration <= max_duration:
+                        duration_groups[key].append(video)
+                        duration_found = True
+                        break
+                
+                # If no suitable group found, create a new one
+                if not duration_found:
+                    key = f"{video.duration:.1f}"
+                    duration_groups[key] = [video]
     
     # Filter out groups with only one video (no potential duplicates)
     filtered_groups = {k: v for k, v in duration_groups.items() if len(v) > 1}
@@ -542,6 +551,7 @@ def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0)
             
         current_group = DuplicateGroup()
         current_group.add_video(video1)
+        max_similarity = 0.0
         
         for j, video2 in enumerate(videos):
             if i == j or video2.hash_id in processed:
@@ -551,9 +561,10 @@ def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0)
             if similarity >= similarity_threshold:
                 current_group.add_video(video2)
                 processed.add(video2.hash_id)
+                max_similarity = max(max_similarity, similarity)
                 
         if len(current_group.videos) > 1:
-            current_group.similarity_score = similarity
+            current_group.similarity_score = max_similarity
             current_group.determine_best_version()
             duplicate_groups.append(current_group)
             
