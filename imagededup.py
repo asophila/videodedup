@@ -244,10 +244,10 @@ def group_by_dimensions(images: List[ImageFile], threshold: float = 0.1) -> Dict
             if i % 10 == 0:  # Log progress every 10 images
                 logger.debug(f"Processing image {i+1}/{len(images)}")
             if image and image.dimensions != (0, 0):
-                # Create a dimension key with a precision relative to the threshold
+                # Create dimension key by rounding to nearest multiple of threshold
                 width, height = image.dimensions
-                key_width = int(width / (width * threshold))
-                key_height = int(height / (height * threshold))
+                key_width = round(width / (width * threshold)) * (width * threshold)
+                key_height = round(height / (height * threshold)) * (height * threshold)
                 dimension_key = f"{key_width}x{key_height}"
                 
                 if dimension_key not in dimension_groups:
@@ -325,6 +325,7 @@ def find_duplicates(images: List[ImageFile], similarity_threshold: float = 80.0)
             
         current_group = DuplicateGroup()
         current_group.add_image(image1)
+        max_similarity = 0.0
         
         for j, image2 in enumerate(images):
             if i == j or image2.hash_id in processed:
@@ -334,9 +335,10 @@ def find_duplicates(images: List[ImageFile], similarity_threshold: float = 80.0)
             if similarity >= similarity_threshold:
                 current_group.add_image(image2)
                 processed.add(image2.hash_id)
+                max_similarity = max(max_similarity, similarity)
                 
         if len(current_group.images) > 1:
-            current_group.similarity_score = similarity
+            current_group.similarity_score = max_similarity
             current_group.determine_best_version()
             duplicate_groups.append(current_group)
             
@@ -1053,8 +1055,16 @@ def save_cache(data: Any, cache_name: str) -> None:
     cache_file = CACHE_DIR / f"{cache_name}.json"
     
     try:
+        # Convert ImageHash objects to hex strings for JSON serialization
+        serializable_data = {}
+        for key, value in data.items():
+            if isinstance(value, imagehash.ImageHash):
+                serializable_data[key] = str(value)
+            else:
+                serializable_data[key] = value
+        
         with open(cache_file, 'w') as f:
-            json.dump(data, f)
+            json.dump(serializable_data, f)
     except Exception as e:
         logger.warning(f"Failed to save cache: {e}")
 
@@ -1068,7 +1078,18 @@ def load_cache(cache_name: str) -> Any:
         
     try:
         with open(cache_file, 'r') as f:
-            return json.load(f)
+            data = json.load(f)
+            
+        # Convert hex strings back to ImageHash objects
+        if isinstance(data, dict) and 'perceptual' in data and 'color' in data:
+            try:
+                data['perceptual'] = imagehash.hex_to_hash(data['perceptual'])
+                data['color'] = imagehash.hex_to_hash(data['color'])
+            except Exception:
+                # If conversion fails, return None to force recalculation
+                return None
+                
+        return data
     except Exception as e:
         logger.warning(f"Failed to load cache: {e}")
         return None
