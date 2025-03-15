@@ -100,14 +100,28 @@ def extract_audio_fingerprint_ffmpeg(video_path):
         logger.warning(f"Error extracting audio fingerprint from {video_path}: {e}")
         return []
 
-def check_quicksync_available():
-    """Check if Intel QuickSync is available."""
+def get_available_hw_accelerators():
+    """Get list of available hardware accelerators."""
     try:
         result = subprocess.run(
             ["ffmpeg", "-hwaccels"], 
             capture_output=True, text=True
         )
-        return "qsv" in result.stdout.lower()
+        # Parse the output to get list of accelerators
+        accelerators = []
+        for line in result.stdout.splitlines():
+            line = line.strip().lower()
+            if line and not line.startswith('hardware'):  # Skip header line
+                accelerators.append(line)
+        return accelerators
+    except Exception:
+        return []
+
+def check_quicksync_available():
+    """Check if Intel QuickSync is available."""
+    try:
+        accelerators = get_available_hw_accelerators()
+        return "qsv" in accelerators
     except Exception:
         return False
 
@@ -270,48 +284,71 @@ class VideoFile:
             logger.warning("ImageHash not available, can't extract frame hashes")
             return {}
             
+        # Try to load from cache first
+        cache_key = f"frame_hashes_{self.hash_id}"
+        cached_hashes = load_cache(cache_key)
+        if cached_hashes:
+            logger.debug(f"Using cached frame hashes for {self.path}")
+            self.frame_hashes = cached_hashes
+            return cached_hashes
+            
         # Clear previous hashes if any
         self.frame_hashes = {}
         
         try:
-            # Use QuickSync if available and requested
-            if use_quicksync and check_quicksync_available():
-                frames = extract_frames_quicksync(self.path, frame_positions)
-            else:
-                frames = []
-                for pos in frame_positions:
-                    with tempfile.NamedTemporaryFile(suffix='.jpg') as temp_img:
-                        cmd = [
-                            "ffmpeg", "-ss", str(pos), 
-                            "-i", str(self.path),
-                            "-frames:v", "1",
-                            "-f", "image2", temp_img.name
-                        ]
-                        try:
-                            subprocess.run(cmd, check=True, capture_output=True)
-                            with Image.open(temp_img.name) as img:
-                                frames.append(img.copy())
-                        except Exception as e:
-                            logger.warning(f"Error extracting frame at {pos}s: {e}")
+            # Create a temporary directory for frames
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Build the select filter for all frames at once
+                select_expr = '+'.join([f"eq(t,{pos})" for pos in frame_positions])
+                
+                # Build FFmpeg command with hardware acceleration and downscaling
+                cmd = [
+                    "ffmpeg",
+                    "-hwaccel", "auto" if use_quicksync else "none",  # Enable hardware acceleration
+                    "-i", str(self.path),
+                    "-vf", f"select='{select_expr}',scale=320:-1",  # Select frames and downscale
+                    "-vsync", "0",
+                    "-frame_pts", "1",  # Include presentation timestamps
+                    "-f", "image2",
+                    f"{temp_dir}/frame_%d.jpg"
+                ]
+                
+                try:
+                    subprocess.run(cmd, check=True, capture_output=True)
+                    
+                    # Load and hash all extracted frames
+                    frames = {}
+                    for frame_file in sorted(Path(temp_dir).glob("frame_*.jpg")):
+                        with Image.open(frame_file) as img:
+                            # Get the frame number from the filename
+                            frame_num = int(frame_file.stem.split('_')[1])
+                            frames[frame_num] = img.copy()
             
-            # Generate hashes for extracted frames
-            for pos, frame in zip(frame_positions, frames):
-                if frame:
-                    # Generate perceptual hash
-                    if hash_algorithm == 'phash':
-                        frame_hash = imagehash.phash(frame)
-                    elif hash_algorithm == 'dhash':
-                        frame_hash = imagehash.dhash(frame)
-                    elif hash_algorithm == 'whash':
-                        frame_hash = imagehash.whash(frame)
-                    elif hash_algorithm == 'average_hash':
-                        frame_hash = imagehash.average_hash(frame)
-                    else:
-                        frame_hash = imagehash.phash(frame)
-                        
-                    self.frame_hashes[pos] = frame_hash
-            
-            return self.frame_hashes
+                    # Generate hashes for extracted frames
+                    for frame_num, frame in frames.items():
+                        # Generate perceptual hash
+                        if hash_algorithm == 'phash':
+                            frame_hash = imagehash.phash(frame)
+                        elif hash_algorithm == 'dhash':
+                            frame_hash = imagehash.dhash(frame)
+                        elif hash_algorithm == 'whash':
+                            frame_hash = imagehash.whash(frame)
+                        elif hash_algorithm == 'average_hash':
+                            frame_hash = imagehash.average_hash(frame)
+                        else:
+                            frame_hash = imagehash.phash(frame)
+                            
+                        # Map frame number back to original position
+                        pos = frame_positions[frame_num - 1]  # frame numbers start at 1
+                        self.frame_hashes[pos] = frame_hash
+                    
+                    # Cache the results
+                    save_cache(self.frame_hashes, cache_key)
+                    return self.frame_hashes
+                    
+                except Exception as e:
+                    logger.warning(f"Error extracting frames: {e}")
+                    return {}
             
         except Exception as e:
             logger.warning(f"Error extracting frame hashes from {self.path}: {e}")
@@ -1450,7 +1487,7 @@ Examples:
         if args.verbose >= 2:
             logger.debug("Debug logging enabled")
     
-    # Check dependencies
+    # Check dependencies and capabilities
     missing_deps = []
     if not IMAGEHASH_AVAILABLE:
         missing_deps.append("imagehash")
@@ -1460,6 +1497,15 @@ Examples:
     if missing_deps:
         logger.warning(f"Missing optional dependencies: {', '.join(missing_deps)}")
         logger.warning("Install with: pip install " + " ".join(missing_deps))
+
+    # Check hardware acceleration support
+    hw_accelerators = get_available_hw_accelerators()
+    if hw_accelerators:
+        logger.info("Available hardware accelerators:")
+        for accel in hw_accelerators:
+            logger.info(f"  - {accel}")
+    else:
+        logger.warning("No hardware acceleration methods available")
     
     # Clear cache if requested
     if args.clear_cache:
