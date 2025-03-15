@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-SmartDeDupeV - Intelligent Video Deduplication Tool
+videodedup - Intelligent Video Deduplication Tool
 
 A content-aware video deduplicator that finds duplicate videos
 even if they have different names, resolutions, or encodings.
@@ -155,11 +155,11 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logger = logging.getLogger('SmartDeDupeV')
+logger = logging.getLogger('videodedup')
 
 # Constants
 VERSION = "1.0.0"
-CACHE_DIR = Path.home() / ".cache" / "smartdedupev"
+CACHE_DIR = Path.home() / ".cache" / "videodedup"
 VIDEO_EXTENSIONS = {
     '.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', 
     '.m4v', '.mpg', '.mpeg', '.3gp', '.3g2', '.mxf', '.ts', 
@@ -393,9 +393,13 @@ def group_by_duration(videos: List[VideoFile], threshold: float = 1.0) -> Dict[s
     """Group videos by similar duration with a percentage threshold."""
     duration_groups = {}
     
+    logger.log(logging.VERBOSE, f"Grouping {len(videos)} videos by duration (threshold: {threshold}%)")
+    
     # First, load metadata for all videos
     with ProcessPoolExecutor() as executor:
-        for video in executor.map(load_video_metadata, videos):
+        for i, video in enumerate(executor.map(load_video_metadata, videos)):
+            if i % 10 == 0:  # Log progress every 10 videos
+                logger.debug(f"Processing video {i+1}/{len(videos)}")
             if video and video.duration > 0:
                 # Create a duration key with a precision relative to the threshold
                 # e.g., with 1% threshold, round to the nearest 1% of the duration
@@ -415,7 +419,9 @@ def group_by_duration(videos: List[VideoFile], threshold: float = 1.0) -> Dict[s
 def load_video_metadata(video: VideoFile) -> VideoFile:
     """Load video metadata - this is a wrapper for multiprocessing."""
     try:
+        logger.debug(f"Loading metadata for {video.path}")
         video.load_complete_metadata()
+        logger.log(logging.VERBOSE, f"Loaded metadata: {video.path} ({video.resolution[0]}x{video.resolution[1]}, {video.duration:.1f}s)")
         return video
     except Exception as e:
         logger.warning(f"Error loading metadata for {video.path}: {e}")
@@ -424,9 +430,11 @@ def load_video_metadata(video: VideoFile) -> VideoFile:
 def _process_video_frames(video: VideoFile, frame_positions: List[float], hash_algorithm: str) -> VideoFile:
     """Process a single video to extract frame hashes."""
     try:
+        logger.debug(f"Processing frames for {video.path}")
         # Adjust frame positions based on video duration
         actual_positions = [pos * video.duration for pos in frame_positions 
                            if 0 <= pos <= 1.0]
+        logger.log(logging.VERBOSE, f"Extracting frames at positions: {[f'{pos:.1f}s' for pos in actual_positions]}")
         
         # Extract frame hashes
         video.extract_frame_hashes(actual_positions, hash_algorithm)
@@ -514,6 +522,10 @@ def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0)
 
 def analyze_videos(video_files: List[VideoFile], args: argparse.Namespace) -> List[DuplicateGroup]:
     """Main analysis pipeline to find duplicate videos."""
+    logger.log(logging.VERBOSE, "Starting video analysis pipeline")
+    logger.log(logging.VERBOSE, f"Analysis parameters: duration_threshold={args.duration_threshold}%, "
+               f"similarity_threshold={args.similarity_threshold}%, hash_algorithm={args.hash_algorithm}")
+    
     # Step 1: Load metadata
     logger.info("Loading video metadata...")
     videos_with_metadata = []
@@ -529,16 +541,20 @@ def analyze_videos(video_files: List[VideoFile], args: argparse.Namespace) -> Li
     logger.info(f"Successfully loaded metadata for {len(videos_with_metadata)} videos")
     
     # Step 2: Group by duration
+    logger.debug("Grouping videos by duration...")
     duration_groups = group_by_duration(videos_with_metadata, args.duration_threshold)
     
     # Step 3: Process each duration group
     all_duplicate_groups = []
+    total_comparisons = 0
     
     for duration, videos in duration_groups.items():
         if len(videos) < 2:
+            logger.debug(f"Skipping duration group {duration}s (only {len(videos)} video)")
             continue
             
         logger.info(f"Processing {len(videos)} videos with duration ~{duration}s")
+        logger.log(logging.VERBOSE, f"Extracting frame hashes for {len(videos)} videos...")
         
         # Extract frame hashes for this group
         videos_with_hashes = extract_video_fingerprints(
@@ -548,18 +564,28 @@ def analyze_videos(video_files: List[VideoFile], args: argparse.Namespace) -> Li
         )
         
         # Find duplicates within this group
+        logger.debug(f"Comparing videos in duration group {duration}s...")
         duplicate_groups = find_duplicates(
             videos_with_hashes, 
             similarity_threshold=args.similarity_threshold
         )
         
+        if duplicate_groups:
+            logger.log(logging.VERBOSE, f"Found {len(duplicate_groups)} duplicate groups in duration {duration}s")
+            for group in duplicate_groups:
+                logger.debug(f"Duplicate group: {len(group.videos)} videos, {group.similarity_score:.1f}% similarity")
+        
         all_duplicate_groups.extend(duplicate_groups)
+        total_comparisons += (len(videos) * (len(videos) - 1)) // 2
     
     # Sort duplicate groups by wasted space (descending)
     all_duplicate_groups.sort(
         key=lambda g: sum(v.size for v in g.videos[1:]), 
         reverse=True
     )
+    
+    logger.log(logging.VERBOSE, f"Analysis complete: {len(all_duplicate_groups)} duplicate groups found")
+    logger.log(logging.VERBOSE, f"Total video comparisons performed: {total_comparisons}")
     
     return all_duplicate_groups
 
@@ -671,7 +697,7 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
             "<!DOCTYPE html>",
             "<html>",
             "<head>",
-            "    <title>SmartDeDupeV - Duplicate Video Report</title>",
+            "    <title>videodedup - Duplicate Video Report</title>",
             "    <style>",
             "        body { font-family: Arial, sans-serif; margin: 20px; }",
             "        .group { border: 1px solid #ccc; margin-bottom: 20px; padding: 15px; border-radius: 5px; }",
@@ -686,7 +712,7 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
             "    </style>",
             "</head>",
             "<body>",
-            "    <h1>SmartDeDupeV - Duplicate Video Report</h1>",
+            "    <h1>videodedup - Duplicate Video Report</h1>",
             f"    <p>Generated on: {datetime.now().isoformat()}</p>"
         ]
         
@@ -1071,7 +1097,7 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
         # Generate bash script
         script_lines = [
             "#!/bin/bash",
-            "# Generated by SmartDeDupeV",
+            "# Generated by videodedup",
             f"# Date: {datetime.now().isoformat()}",
             "",
             "# This script will delete duplicate videos",
@@ -1112,7 +1138,7 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
     elif script_type == 'powershell':
         # Generate PowerShell script
         script_lines = [
-            "# Generated by SmartDeDupeV",
+            "# Generated by videodedup",
             f"# Date: {datetime.now().isoformat()}",
             "",
             "# This script will delete duplicate videos",
@@ -1156,7 +1182,7 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
         # Generate Python script
         script_lines = [
             "#!/usr/bin/env python3",
-            "# Generated by SmartDeDupeV",
+            "# Generated by videodedup",
             f"# Date: {datetime.now().isoformat()}",
             "",
             "# This script will delete duplicate videos",
@@ -1261,7 +1287,7 @@ def clear_cache() -> None:
 def main():
     """Main entry point for the script."""
     parser = argparse.ArgumentParser(
-        description="""SmartDeDupeV - Intelligent Video Deduplication Tool
+        description="""videodedup - Intelligent Video Deduplication Tool
 
 This tool helps you find and manage duplicate videos, even if they have different names,
 resolutions, or encodings. It uses perceptual hashing and content analysis to identify
@@ -1384,17 +1410,15 @@ Examples:
     # Misc options
     misc_group = parser.add_argument_group('Miscellaneous')
     misc_group.add_argument(
-        '--log-level', 
-        type=str, 
-        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'],
-        metavar='LEVEL',
-        default='INFO',
-        help='Set the logging level'
+        '-v', '--verbose',
+        action='count',
+        default=0,
+        help='Increase verbosity level (-v for detailed, -vv for debug)'
     )
     misc_group.add_argument(
         '--version', 
         action='version', 
-        version=f'SmartDeDupeV {VERSION}'
+            version=f'videodedup {VERSION}'
     )
     misc_group.add_argument(
         '--clear-cache', 
@@ -1404,8 +1428,23 @@ Examples:
     
     args = parser.parse_args()
     
-    # Set up logging
-    logger.setLevel(getattr(logging, args.log_level))
+    # Set up logging based on verbosity
+    if args.verbose == 0:
+        log_level = logging.INFO
+    elif args.verbose == 1:
+        # Add custom VERBOSE level between INFO and DEBUG
+        logging.VERBOSE = 15  # Between INFO (20) and DEBUG (10)
+        logging.addLevelName(logging.VERBOSE, "VERBOSE")
+        log_level = logging.VERBOSE
+    else:
+        log_level = logging.DEBUG
+    
+    logger.setLevel(log_level)
+    
+    if args.verbose >= 1:
+        logger.log(logging.VERBOSE, "Verbose logging enabled")
+        if args.verbose >= 2:
+            logger.debug("Debug logging enabled")
     
     # Check dependencies
     missing_deps = []
