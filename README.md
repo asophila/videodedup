@@ -80,139 +80,28 @@ python -m venv venv
 source venv/bin/activate  # Linux/macOS
 venv\Scripts\activate     # Windows
 
-# Install dependencies
-pip install -r requirements.txt
+# Install package and dependencies
+pip install -e .
 ```
 
 ### Verify Installation
 
 ```bash
 # Test VideoDeDup
-python videodedup.py --version
+videodedup --version
 
 # Test ImageDeDup
-python imagededup.py --version
+imagededup --version
 ```
 
-## 🔧 How They Work
-
-### VideoDeDup - Video Deduplication
-
-VideoDeDup uses a sophisticated multi-stage approach to find duplicate videos:
-
-1. **Pre-filtering** 📥
-   ```
-   Videos/
-   ├── movie-1080p.mkv (2h 1m 30s)
-   ├── movie-720p.mp4  (2h 1m 30s)  ┐
-   └── other.mp4       (1h 30m 20s) ┘ Different duration, skipped
-   ```
-   Groups videos by similar duration (default: ±1%) to reduce comparison load
-
-2. **Frame Analysis** 🖼️
-   - Extracts frames at strategic points (10%, 30%, 50%, 70%, 90% of duration)
-   - Generates perceptual hashes (pHash) of frames
-   - Compares hash distances to identify potential matches
-   ```python
-   Frame Positions: [0.1, 0.3, 0.5, 0.7, 0.9]
-   Hash Distance < 10 = Potential Match
-   ```
-
-3. **Scene Detection** 🎬
-   - Uses FFmpeg's scene detection to identify content changes
-   - Helps verify matches across different encodings
-   ```
-   Scene Changes:
-   Video 1: [0:30, 1:45, 2:15, ...]
-   Video 2: [0:31, 1:44, 2:16, ...]  ← Similar pattern
-   ```
-
-4. **Quality Assessment** ⭐
-   - Evaluates video quality based on:
-     - Resolution (e.g., 1920x1080 vs 1280x720)
-     - Bitrate (e.g., 8000 kbps vs 2000 kbps)
-     - Frame rate (e.g., 60 fps vs 30 fps)
-   - Scores each version to determine the best copy
-
-### ImageDeDup - Image Deduplication
-
-ImageDeDup uses an efficient approach to find duplicate images:
-
-1. **Pre-filtering** 📥
-   ```
-   Images/
-   ├── photo-4k.jpg     (3840x2160)
-   ├── photo-2k.jpg     (2560x1440)  ┐
-   └── other.jpg        (1920x1080)  ┘ Different dimensions, grouped separately
-   ```
-   Groups images by similar dimensions to reduce comparison load
-
-2. **Perceptual Analysis** 🖼️
-   - Calculates perceptual hash (pHash) of each image
-   - Generates color hash for additional comparison
-   - Compares hash distances to identify potential matches
-   ```python
-   Perceptual Hash Weight: 70%
-   Color Hash Weight: 30%
-   Similarity Score >= 85% = Potential Match
-   ```
-
-3. **Quality Assessment** ⭐
-   - Evaluates image quality based on:
-     - Resolution (e.g., 3840x2160 vs 1920x1080)
-     - File size and format
-     - Color depth and mode
-   - Scores each version to determine the best copy
-
-## 📦 Installation
-
-1. **Required Dependencies**
-
-   Ubuntu/Debian:
-   ```bash
-   sudo apt update
-   sudo apt install ffmpeg
-   ```
-
-   macOS:
-   ```bash
-   brew install ffmpeg
-   ```
-
-   Windows:
-   - Download from [ffmpeg.org](https://ffmpeg.org/download.html)
-   - Add to system PATH
-
-2. **Install VideoDeDup**
-
-   ```bash
-   # Clone the repository
-   git clone https://github.com/yourusername/videodedup.git
-   cd videodedup
-
-   # Create a virtual environment (recommended)
-   python -m venv venv
-   source venv/bin/activate  # Linux/macOS
-   venv\Scripts\activate     # Windows
-
-   # Install dependencies
-   pip install -r requirements.txt
-   ```
-
-3. **Verify Installation**
-
-   ```bash
-   python videodedup.py --version
-   ```
-
-## 📚 Usage Examples
+## 🔧 Usage Examples
 
 ### VideoDeDup Examples
 
 #### Basic Video Scan and Report
 
 ```bash
-python videodedup.py /path/to/videos
+videodedup /path/to/videos
 ```
 
 Example output:
@@ -238,7 +127,7 @@ Duplicates:
 #### Generate Video HTML Report with Thumbnails
 
 ```bash
-python videodedup.py /path/to/videos --output-format html --html-report-dir ./report
+videodedup /path/to/videos --output-format html --html-report-dir ./report
 ```
 
 Creates a rich HTML report with:
@@ -251,7 +140,7 @@ Creates a rich HTML report with:
 #### Interactive Video Mode
 
 ```bash
-python videodedup.py /path/to/videos --action interactive
+videodedup /path/to/videos --action interactive
 ```
 
 Provides an interactive CLI interface to:
@@ -263,41 +152,7 @@ Provides an interactive CLI interface to:
 #### Move Video Duplicates to Separate Directory
 
 ```bash
-python videodedup.py /path/to/videos --action move --target-dir /path/to/duplicates
-```
-
-Directory structure after moving:
-```
-/path/to/duplicates/
-├── group_1/
-│   ├── movie-720p.mp4
-│   └── movie-480p.avi
-├── group_2/
-│   └── video2-copy.mkv
-└── group_3/
-    ├── duplicate1.mp4
-    └── duplicate2.webm
-```
-
-#### Generate Video Cleanup Script
-
-```bash
-python videodedup.py /path/to/videos --action script --script-type bash --output-file cleanup.sh
-```
-
-Creates a script for manual review and execution:
-```bash
-#!/bin/bash
-# Generated by VideoDeDup
-# Date: 2025-03-14T21:30:00
-
-# Execute with: bash cleanup.sh
-# For dry-run: bash cleanup.sh --dry-run
-
-echo "Group 1"
-echo "Keeping: /videos/movie-1080p.mkv"
-rm "/videos/movie-720p.mp4"
-...
+videodedup /path/to/videos --action move --target-dir /path/to/duplicates
 ```
 
 ### ImageDeDup Examples
@@ -305,7 +160,7 @@ rm "/videos/movie-720p.mp4"
 #### Basic Image Scan and Report
 
 ```bash
-python imagededup.py /path/to/images
+imagededup /path/to/images
 ```
 
 Example output:
@@ -331,20 +186,20 @@ Duplicates:
 #### Generate Image HTML Report with Thumbnails
 
 ```bash
-python imagededup.py /path/to/images --output-format html --html-report-dir ./report
+imagededup /path/to/images --output-format html --html-report-dir ./report
 ```
 
 Creates a rich HTML report with:
 - Image thumbnails for easy comparison
 - Side-by-side visual comparison
-- Detailed metadata (dimensions, format, color mode)
+- Detailed metadata
 - Quality comparisons
 - Interactive layout
 
 #### Interactive Image Mode
 
 ```bash
-python imagededup.py /path/to/images --action interactive
+imagededup /path/to/images --action interactive
 ```
 
 Provides an interactive CLI interface to:
@@ -356,111 +211,42 @@ Provides an interactive CLI interface to:
 #### Move Image Duplicates to Separate Directory
 
 ```bash
-python imagededup.py /path/to/images --action move --target-dir /path/to/duplicates
+imagededup /path/to/images --action move --target-dir /path/to/duplicates
 ```
 
-Directory structure after moving:
-```
-/path/to/duplicates/
-├── group_1/
-│   ├── photo-2k.jpg
-│   └── photo-1080p.jpg
-├── group_2/
-│   └── image-copy.png
-└── group_3/
-    ├── duplicate1.jpg
-    └── duplicate2.webp
-```
+## 📚 Command Reference
 
-#### Generate Image Cleanup Script
+### Common Options
 
 ```bash
-python imagededup.py /path/to/images --action script --script-type bash --output-file cleanup.sh
+--output-format FORMAT     # Output format: text, json, csv, html
+--html-report-dir DIR      # Directory to store HTML report with thumbnails
+--output-file FILE        # Output file path (default: stdout)
+--action ACTION           # Action: report, interactive, move, symlink, hardlink, delete, script
+--target-dir DIR         # Target directory for move/symlink/hardlink actions
+--force-delete           # Force deletion of duplicates (required for delete action)
+--script-type TYPE       # Type of script to generate: bash, powershell, python
+--recursive              # Scan directories recursively (default: True)
+--no-recursive          # Do not scan directories recursively
+--verbose, -v           # Increase verbosity level (-v for detailed, -vv for debug)
+--version              # Show program version
+--clear-cache          # Clear cache before running
 ```
-
-Creates a script for manual review and execution:
-```bash
-#!/bin/bash
-# Generated by ImageDeDup
-# Date: 2025-03-14T21:30:00
-
-# Execute with: bash cleanup.sh
-# For dry-run: bash cleanup.sh --dry-run
-
-echo "Group 1"
-echo "Keeping: /photos/image-4k.jpg"
-rm "/photos/image-2k.jpg"
-...
-```
-
-## 🎮 Command Reference
 
 ### VideoDeDup Options
-
-#### Analysis Options
 
 ```bash
 --duration-threshold FLOAT   # Percentage threshold for duration matching (default: 1.0)
 --similarity-threshold FLOAT # Percentage threshold for similarity detection (default: 85.0)
 --hash-algorithm ALGORITHM   # Hash algorithm: phash, dhash, whash, average_hash (default: phash)
---recursive                  # Scan directories recursively (default: True)
---no-recursive              # Do not scan directories recursively
 ```
-
-#### Action Options
-
-```bash
---action ACTION             # Action to take: report, interactive, move, symlink, hardlink, delete, script
---target-dir DIR           # Target directory for move/symlink/hardlink actions
---force-delete             # Force deletion of duplicates (required for delete action)
---script-type TYPE         # Type of script to generate: bash, powershell, python
-```
-
-#### Output Options
-
-```bash
---output-format FORMAT     # Output format: text, json, csv, html
---html-report-dir DIR      # Directory to store HTML report with thumbnails
---output-file FILE        # Output file path (default: stdout)
-```
-
-#### Miscellaneous
 
 ### ImageDeDup Options
 
-#### Analysis Options
-
 ```bash
---dimension-threshold FLOAT # Percentage threshold for dimension matching (default: 0.1)
+--dimension-threshold FLOAT  # Percentage threshold for dimension matching (default: 0.1)
 --similarity-threshold FLOAT # Percentage threshold for similarity detection (default: 85.0)
 --hash-algorithm ALGORITHM   # Hash algorithm: phash, dhash, whash, average_hash (default: phash)
---recursive                  # Scan directories recursively (default: True)
---no-recursive              # Do not scan directories recursively
-```
-
-#### Action Options
-
-```bash
---action ACTION             # Action to take: report, interactive, move, symlink, hardlink, delete, script
---target-dir DIR           # Target directory for move/symlink/hardlink actions
---force-delete             # Force deletion of duplicates (required for delete action)
---script-type TYPE         # Type of script to generate: bash, powershell, python
-```
-
-#### Output Options
-
-```bash
---output-format FORMAT     # Output format: text, json, csv, html
---html-report-dir DIR      # Directory to store HTML report with thumbnails
---output-file FILE        # Output file path (default: stdout)
-```
-
-#### Miscellaneous
-
-```bash
---log-level LEVEL         # Set logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL
---version                 # Show program version
---clear-cache            # Clear cache before running
 ```
 
 ## 💡 Performance Tips
@@ -502,46 +288,6 @@ rm "/photos/image-2k.jpg"
 2. **File Organization**
    - Group similar files in directories for faster processing
    - Use recursive mode carefully with large directory trees
-
-## ❗ Troubleshooting
-
-### VideoDeDup Issues
-
-1. **FFmpeg Not Found**
-   - Ensure FFmpeg is installed and in system PATH
-   - Test with `ffmpeg -version` and `ffprobe -version`
-
-2. **Video Processing Errors**
-   - Check video file integrity
-   - Ensure sufficient disk space for frame extraction
-
-### ImageDeDup Issues
-
-1. **Image Format Errors**
-   - Ensure image files are not corrupted
-   - Check for proper file extensions
-   - Convert non-standard formats to JPEG/PNG
-
-2. **Color Mode Issues**
-   - Some images may need conversion to RGB
-   - CMYK images are automatically converted
-
-### Common Issues
-
-1. **Memory Issues**
-   - Process smaller directories at a time
-   - Increase grouping thresholds for smaller batches
-   - Use 64-bit Python for large collections
-
-2. **False Positives/Negatives**
-   - Adjust `--similarity-threshold` (default: 85.0)
-   - Try different hash algorithms with `--hash-algorithm`
-   - Fine-tune grouping thresholds
-
-3. **Slow Processing**
-   - Use SSD for temporary files
-   - Process files on local drives rather than network storage
-   - Enable parallel processing with multiple cores
 
 ## 📄 License
 
