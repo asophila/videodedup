@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any
 import logging
+from PIL import Image
+import imagehash
 
 from ..common.models import MediaFile
 from . import check_quicksync_available
