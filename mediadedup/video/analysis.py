@@ -96,21 +96,38 @@ def extract_video_fingerprints(videos: List[VideoFile],
                           frame_positions=frame_positions,
                           hash_algorithm=hash_algorithm)
     
-    # Sort videos by size for optimal RAM disk usage
-    videos = sorted(videos, key=lambda v: v.size)
-    processed_videos = []
+    # Group videos by size to optimize RAM disk usage
+    small_videos = []
+    large_videos = []
     
-    # Create RAM disk manager
+    # Create RAM disk manager to check sizes
     with RAMDiskManager() as ram_disk:
+        ram_disk_size = ram_disk.size_mb * 1024 * 1024  # Convert to bytes
+        max_single_file = ram_disk_size * 0.8  # Single file shouldn't use more than 80% of RAM disk
+        
+        # Sort videos into small and large groups
+        for video in videos:
+            if video.size <= max_single_file:
+                small_videos.append(video)
+            else:
+                large_videos.append(video)
+        
+        if large_videos:
+            logger.info(f"Found {len(large_videos)} videos too large for RAM disk, will process directly")
+        
+        # Sort small videos by size for optimal batching
+        small_videos.sort(key=lambda v: v.size)
+        processed_videos = []
+        
+        # Process small videos in RAM disk batches
         batch = []
         batch_size = 0
-        max_batch_size = ram_disk.size_mb * 1024 * 1024 * 0.8  # Leave 20% free
         
-        for video in videos:
-            # If adding this video would exceed RAM disk size, process current batch
-            if batch_size + video.size > max_batch_size and batch:
+        for video in small_videos:
+            # Check if this video will fit with current batch
+            if not ram_disk.will_file_fit(video.size) and batch:
+                # Process current batch
                 logger.info(f"Processing batch of {len(batch)} videos in RAM disk")
-                # Process current batch in parallel
                 with ProcessPoolExecutor() as executor:
                     processed_batch = list(executor.map(process_func, batch))
                 processed_videos.extend(processed_batch)
@@ -119,7 +136,7 @@ def extract_video_fingerprints(videos: List[VideoFile],
                 batch_size = 0
                 ram_disk.clear()
             
-            # Add video to current batch
+            # Try to add video to current batch
             try:
                 # Copy video to RAM disk
                 ram_path = ram_disk.copy_to_ramdisk(video.path)
@@ -129,6 +146,30 @@ def extract_video_fingerprints(videos: List[VideoFile],
                 batch.append(video)
                 batch_size += video.size
                 logger.debug(f"Added {orig_path.name} to RAM disk batch")
+            except ValueError as e:
+                # File too large for current RAM disk state
+                logger.warning(str(e))
+                if batch:
+                    # Process current batch first
+                    logger.info(f"Processing batch of {len(batch)} videos in RAM disk")
+                    with ProcessPoolExecutor() as executor:
+                        processed_batch = list(executor.map(process_func, batch))
+                    processed_videos.extend(processed_batch)
+                    # Clear batch and RAM disk
+                    batch = []
+                    batch_size = 0
+                    ram_disk.clear()
+                    # Try again with empty RAM disk
+                    try:
+                        ram_path = ram_disk.copy_to_ramdisk(video.path)
+                        video.path = ram_path
+                        batch.append(video)
+                        batch_size += video.size
+                        logger.debug(f"Added {orig_path.name} to RAM disk batch after clearing")
+                    except ValueError:
+                        # Still too large, process directly
+                        logger.warning(f"Video {video.path.name} too large for RAM disk, processing directly")
+                        processed_videos.append(process_func(video))
             except Exception as e:
                 logger.warning(f"Failed to copy {video.path} to RAM disk: {e}")
                 # Process this video directly from disk
@@ -140,6 +181,13 @@ def extract_video_fingerprints(videos: List[VideoFile],
             with ProcessPoolExecutor() as executor:
                 processed_batch = list(executor.map(process_func, batch))
             processed_videos.extend(processed_batch)
+        
+        # Process large videos directly
+        if large_videos:
+            logger.info(f"Processing {len(large_videos)} large videos directly from disk")
+            with ProcessPoolExecutor() as executor:
+                processed_large = list(executor.map(process_func, large_videos))
+            processed_videos.extend(processed_large)
     
     # Restore original paths
     for video in processed_videos:

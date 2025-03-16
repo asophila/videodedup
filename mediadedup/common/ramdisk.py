@@ -104,14 +104,46 @@ class RAMDiskManager:
             logger.error(f"Failed to clear RAM disk: {e}")
             return False
     
+    def will_file_fit(self, file_size: int) -> bool:
+        """Check if a file of given size will fit in the RAM disk.
+        
+        Args:
+            file_size: Size of the file in bytes
+            
+        Returns:
+            bool: True if the file will fit, False otherwise
+        """
+        if not self.is_mounted:
+            return False
+            
+        try:
+            free_space = self.get_free_space()
+            # Leave some buffer space (5% of RAM disk size)
+            buffer_space = self.size_mb * 1024 * 1024 * 0.05
+            return file_size <= (free_space - buffer_space)
+        except Exception:
+            return False
+    
     def copy_to_ramdisk(self, file_path: Path) -> Path:
         """Copy a file to the RAM disk.
         
+        Args:
+            file_path: Path to the file to copy
+            
         Returns:
-            Path to the file in the RAM disk.
+            Path to the file in the RAM disk
+            
+        Raises:
+            RuntimeError: If RAM disk is not mounted
+            ValueError: If file is too large for RAM disk
+            OSError: If copy fails
         """
         if not self.is_mounted:
             raise RuntimeError("RAM disk not mounted")
+            
+        file_size = file_path.stat().st_size
+        if not self.will_file_fit(file_size):
+            raise ValueError(f"File {file_path.name} ({file_size / (1024*1024):.1f}MB) is too large for RAM disk with {self.get_free_space() / (1024*1024):.1f}MB free")
             
         try:
             dest_path = self.mount_point / file_path.name
