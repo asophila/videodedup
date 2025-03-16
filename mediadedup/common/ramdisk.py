@@ -44,16 +44,9 @@ class RAMDiskManager:
                 # Create mount point if it doesn't exist
                 self.mount_point.mkdir(parents=True, exist_ok=True)
                 
-                # Mount tmpfs
-                cmd = [
-                    'sudo', 'mount', '-t', 'tmpfs',
-                    '-o', f'size={self.size_mb}M',
-                    'tmpfs', str(self.mount_point)
-                ]
-                subprocess.run(cmd, check=True)
-                
-                # Ensure write permissions
-                subprocess.run(['sudo', 'chmod', '777', str(self.mount_point)], check=True)
+                # Create a memory-mapped temporary directory
+                self.mount_point = Path(tempfile.mkdtemp(prefix='videodedup_ramdisk_'))
+                self.is_mounted = True
                 
             else:  # Windows not supported yet
                 raise NotImplementedError("RAM disk support for Windows not implemented")
@@ -73,12 +66,15 @@ class RAMDiskManager:
             
         try:
             if os.name == 'posix':  # Linux/macOS
-                # Unmount tmpfs
-                subprocess.run(['sudo', 'umount', str(self.mount_point)], check=True)
+                # Remove all files and subdirectories
+                for item in self.mount_point.iterdir():
+                    if item.is_file():
+                        item.unlink()
+                    elif item.is_dir():
+                        shutil.rmtree(item)
                 
-                # Remove mount point if it was temporary
-                if self.mount_point.name.startswith('videodedup_ramdisk_'):
-                    self.mount_point.rmdir()
+                # Remove the directory itself
+                self.mount_point.rmdir()
             
             self.is_mounted = False
             logger.info(f"Unmounted RAM disk from {self.mount_point}")
