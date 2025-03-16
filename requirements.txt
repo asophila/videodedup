@@ -8,6 +8,7 @@ imagehash>=4.2.0
 # On Debian/Ubuntu: sudo apt-get install ffmpeg
 # On macOS with Homebrew: brew install ffmpeg
 # On Windows: Download from https://ffmpeg.org/download.html
+psutil>=5.9.0     # System resource monitoring
 
 # ImageDeDup specific dependencies
 # None - uses only core dependencies

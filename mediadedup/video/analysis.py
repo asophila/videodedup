@@ -84,7 +84,9 @@ def _process_video_frames(video: VideoFile, frame_positions: List[float], hash_a
 def extract_video_fingerprints(videos: List[VideoFile], 
                              frame_positions: List[float] = None,
                              hash_algorithm: str = 'phash') -> List[VideoFile]:
-    """Extract fingerprints (frame hashes) from videos."""
+    """Extract fingerprints (frame hashes) from videos using RAM disk for better performance."""
+    from ..common.ramdisk import RAMDiskManager
+    
     if frame_positions is None:
         # Default to sampling at beginning, 25%, 50%, 75% and end
         frame_positions = [0.0, 0.25, 0.5, 0.75, 1.0]
@@ -94,9 +96,55 @@ def extract_video_fingerprints(videos: List[VideoFile],
                           frame_positions=frame_positions,
                           hash_algorithm=hash_algorithm)
     
-    # Process videos in parallel
-    with ProcessPoolExecutor() as executor:
-        processed_videos = list(executor.map(process_func, videos))
+    # Sort videos by size for optimal RAM disk usage
+    videos = sorted(videos, key=lambda v: v.size)
+    processed_videos = []
+    
+    # Create RAM disk manager
+    with RAMDiskManager() as ram_disk:
+        batch = []
+        batch_size = 0
+        max_batch_size = ram_disk.size_mb * 1024 * 1024 * 0.8  # Leave 20% free
+        
+        for video in videos:
+            # If adding this video would exceed RAM disk size, process current batch
+            if batch_size + video.size > max_batch_size and batch:
+                logger.info(f"Processing batch of {len(batch)} videos in RAM disk")
+                # Process current batch in parallel
+                with ProcessPoolExecutor() as executor:
+                    processed_batch = list(executor.map(process_func, batch))
+                processed_videos.extend(processed_batch)
+                # Clear batch and RAM disk
+                batch = []
+                batch_size = 0
+                ram_disk.clear()
+            
+            # Add video to current batch
+            try:
+                # Copy video to RAM disk
+                ram_path = ram_disk.copy_to_ramdisk(video.path)
+                # Update video path to RAM disk path
+                orig_path = video.path
+                video.path = ram_path
+                batch.append(video)
+                batch_size += video.size
+                logger.debug(f"Added {orig_path.name} to RAM disk batch")
+            except Exception as e:
+                logger.warning(f"Failed to copy {video.path} to RAM disk: {e}")
+                # Process this video directly from disk
+                processed_videos.append(process_func(video))
+        
+        # Process final batch if any
+        if batch:
+            logger.info(f"Processing final batch of {len(batch)} videos in RAM disk")
+            with ProcessPoolExecutor() as executor:
+                processed_batch = list(executor.map(process_func, batch))
+            processed_videos.extend(processed_batch)
+    
+    # Restore original paths
+    for video in processed_videos:
+        if str(video.path).startswith(str(ram_disk.mount_point)):
+            video.path = Path(str(video.path).replace(str(ram_disk.mount_point), '').lstrip('/'))
     
     return processed_videos
 
