@@ -29,8 +29,8 @@ class RAMDiskManager:
     def _calculate_safe_size(self) -> int:
         """Calculate a safe RAM disk size based on available memory."""
         mem = psutil.virtual_memory()
-        # Use 50% of available memory, but no more than 4GB
-        safe_size = min(int(mem.available * 0.5 / (1024 * 1024)), 4096)
+        # Use 80% of available memory
+        safe_size = int(mem.available * 0.8 / (1024 * 1024))
         # Ensure at least 1GB
         return max(safe_size, 1024)
     
