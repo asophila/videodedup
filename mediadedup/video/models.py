@@ -92,50 +92,59 @@ class VideoFile(MediaFile):
         try:
             # Create a temporary directory for frames
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Build the select filter for all frames at once
-                select_expr = '+'.join([f"eq(t,{pos})" for pos in frame_positions])
-                
                 # Build FFmpeg command with hardware acceleration and downscaling
                 cmd = [
                     "ffmpeg",
                     "-hwaccel", "auto" if use_quicksync else "none",  # Enable hardware acceleration
                     "-i", str(self.path),
-                    "-vf", f"select='{select_expr}',scale=320:-1",  # Select frames and downscale
+                    "-vf", "fps=1",  # Extract 1 frame per second
                     "-vsync", "0",
                     "-frame_pts", "1",  # Include presentation timestamps
                     "-f", "image2",
                     f"{temp_dir}/frame_%d.jpg"
                 ]
-                
+
                 try:
+                    # Run ffmpeg to extract frames
                     subprocess.run(cmd, check=True, capture_output=True)
                     
-                    # Create a mapping of frame numbers to positions
-                    frame_map = {}
-                    for i, pos in enumerate(frame_positions):
-                        frame_map[i + 1] = pos  # frame numbers start at 1
-                    
-                    # Load and hash all extracted frames
-                    frames = {}
+                    # Get all extracted frames
                     extracted_frames = sorted(Path(temp_dir).glob("frame_*.jpg"))
                     
-                    # Verify we got the expected number of frames
-                    if len(extracted_frames) != len(frame_positions):
-                        logger.warning(f"Expected {len(frame_positions)} frames but got {len(extracted_frames)}")
-                    
-                    # Process each extracted frame
+                    # Calculate frame positions in seconds
+                    frame_times = []
                     for frame_file in extracted_frames:
                         try:
-                            with Image.open(frame_file) as img:
-                                # Get the frame number from the filename
-                                frame_num = int(frame_file.stem.split('_')[1])
-                                frames[frame_num] = img.copy()
-                        except Exception as e:
-                            logger.warning(f"Error loading frame {frame_file}: {e}")
+                            # Frame numbers start at 1 and represent seconds
+                            frame_num = int(frame_file.stem.split('_')[1])
+                            frame_times.append(frame_num)
+                        except Exception:
                             continue
-            
+                    
+                    # Find closest frames to desired positions
+                    frames = {}
+                    for pos in frame_positions:
+                        # Convert position to seconds
+                        target_time = pos * self.duration
+                        
+                        # Find closest frame
+                        if frame_times:
+                            closest_time = min(frame_times, key=lambda x: abs(x - target_time))
+                            frame_file = Path(temp_dir) / f"frame_{closest_time}.jpg"
+                            
+                            if frame_file.exists():
+                                try:
+                                    with Image.open(frame_file) as img:
+                                        frames[pos] = img.copy()
+                                except Exception as e:
+                                    logger.warning(f"Error loading frame {frame_file}: {e}")
+                    
+                    # Verify we got enough frames
+                    if len(frames) != len(frame_positions):
+                        logger.warning(f"Expected {len(frame_positions)} frames but got {len(frames)}")
+                    
                     # Generate hashes for extracted frames
-                    for frame_num, frame in frames.items():
+                    for pos, frame in frames.items():
                         try:
                             # Generate perceptual hash
                             if hash_algorithm == 'phash':
@@ -149,12 +158,8 @@ class VideoFile(MediaFile):
                             else:
                                 frame_hash = imagehash.phash(frame)
                             
-                            # Map frame number to position using our frame map
-                            if frame_num in frame_map:
-                                pos = frame_map[frame_num]
-                                self.frame_hashes[pos] = frame_hash
-                            else:
-                                logger.warning(f"Frame number {frame_num} not found in frame map")
+                            # Store hash with its position
+                            self.frame_hashes[pos] = frame_hash
                         except Exception as e:
                             logger.warning(f"Error hashing frame {frame_num}: {e}")
                             continue
