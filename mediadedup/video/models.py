@@ -110,31 +110,54 @@ class VideoFile(MediaFile):
                 try:
                     subprocess.run(cmd, check=True, capture_output=True)
                     
+                    # Create a mapping of frame numbers to positions
+                    frame_map = {}
+                    for i, pos in enumerate(frame_positions):
+                        frame_map[i + 1] = pos  # frame numbers start at 1
+                    
                     # Load and hash all extracted frames
                     frames = {}
-                    for frame_file in sorted(Path(temp_dir).glob("frame_*.jpg")):
-                        with Image.open(frame_file) as img:
-                            # Get the frame number from the filename
-                            frame_num = int(frame_file.stem.split('_')[1])
-                            frames[frame_num] = img.copy()
+                    extracted_frames = sorted(Path(temp_dir).glob("frame_*.jpg"))
+                    
+                    # Verify we got the expected number of frames
+                    if len(extracted_frames) != len(frame_positions):
+                        logger.warning(f"Expected {len(frame_positions)} frames but got {len(extracted_frames)}")
+                    
+                    # Process each extracted frame
+                    for frame_file in extracted_frames:
+                        try:
+                            with Image.open(frame_file) as img:
+                                # Get the frame number from the filename
+                                frame_num = int(frame_file.stem.split('_')[1])
+                                frames[frame_num] = img.copy()
+                        except Exception as e:
+                            logger.warning(f"Error loading frame {frame_file}: {e}")
+                            continue
             
                     # Generate hashes for extracted frames
                     for frame_num, frame in frames.items():
-                        # Generate perceptual hash
-                        if hash_algorithm == 'phash':
-                            frame_hash = imagehash.phash(frame)
-                        elif hash_algorithm == 'dhash':
-                            frame_hash = imagehash.dhash(frame)
-                        elif hash_algorithm == 'whash':
-                            frame_hash = imagehash.whash(frame)
-                        elif hash_algorithm == 'average_hash':
-                            frame_hash = imagehash.average_hash(frame)
-                        else:
-                            frame_hash = imagehash.phash(frame)
+                        try:
+                            # Generate perceptual hash
+                            if hash_algorithm == 'phash':
+                                frame_hash = imagehash.phash(frame)
+                            elif hash_algorithm == 'dhash':
+                                frame_hash = imagehash.dhash(frame)
+                            elif hash_algorithm == 'whash':
+                                frame_hash = imagehash.whash(frame)
+                            elif hash_algorithm == 'average_hash':
+                                frame_hash = imagehash.average_hash(frame)
+                            else:
+                                frame_hash = imagehash.phash(frame)
                             
-                        # Map frame number back to original position
-                        pos = frame_positions[frame_num - 1]  # frame numbers start at 1
-                        self.frame_hashes[pos] = frame_hash
+                            # Map frame number to position using our frame map
+                            if frame_num in frame_map:
+                                pos = frame_map[frame_num]
+                                self.frame_hashes[pos] = frame_hash
+                            else:
+                                logger.warning(f"Frame number {frame_num} not found in frame map")
+                        except Exception as e:
+                            logger.warning(f"Error hashing frame {frame_num}: {e}")
+                            continue
                     
                     return self.frame_hashes
                     
