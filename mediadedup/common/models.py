@@ -68,9 +68,47 @@ class DuplicateGroup:
         """Convert to dictionary for serialization."""
         return {
             'similarity_score': self.similarity_score,
-            'file_count': len(self.files),
-            'best_version': str(self.best_version.path) if self.best_version else None,
-            'files': [str(v.path) for v in self.files],
-            'total_size': sum(v.size for v in self.files),
-            'wasted_space': sum(v.size for v in self.files[1:]) if self.files else 0
+            'files': [{
+                'path': str(v.path),
+                'size': v.size,
+                'content_score': v.content_score,
+                'hash_id': v.hash_id,
+                'metadata': v.get_metadata()
+            } for v in self.files],
+            'best_version_hash': self.best_version.hash_id if self.best_version else None
         }
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'DuplicateGroup':
+        """Create a DuplicateGroup instance from dictionary data."""
+        group = cls()
+        group.similarity_score = data['similarity_score']
+        
+        # Restore files
+        for file_data in data['files']:
+            # Determine file type from metadata
+            path = Path(file_data['path'])
+            metadata = file_data['metadata']
+            
+            # Import here to avoid circular imports
+            from ..video.models import VideoFile
+            
+            # Create appropriate file type
+            if path.suffix.lower() in {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'}:
+                file = VideoFile.from_dict(file_data)
+            else:
+                file = MediaFile(path)
+                file.size = file_data['size']
+                file.content_score = file_data['content_score']
+                file.hash_id = file_data['hash_id']
+            
+            group.files.append(file)
+        
+        # Restore best version by matching hash_id
+        if data['best_version_hash'] and group.files:
+            for file in group.files:
+                if file.hash_id == data['best_version_hash']:
+                    group.best_version = file
+                    break
+        
+        return group

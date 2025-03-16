@@ -233,6 +233,38 @@ class VideoFile(MediaFile):
             'duration': self.duration,
             'resolution': f"{self.resolution[0]}x{self.resolution[1]}",
             'bitrate': self.bitrate,
-            'frame_rate': self.frame_rate
+            'frame_rate': self.frame_rate,
+            'frame_hashes': {str(k): str(v) for k, v in self.frame_hashes.items()},
+            'audio_fingerprint': self.audio_fingerprint
         })
         return metadata
+
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for serialization."""
+        return {
+            'path': str(self.path),
+            'size': self.size,
+            'content_score': self.content_score,
+            'hash_id': self.hash_id,
+            'duration': self.duration,
+            'resolution': list(self.resolution),
+            'bitrate': self.bitrate,
+            'frame_rate': self.frame_rate,
+            'frame_hashes': {str(k): str(v) for k, v in self.frame_hashes.items()},
+            'audio_fingerprint': self.audio_fingerprint
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'VideoFile':
+        """Create a VideoFile instance from dictionary data."""
+        video = cls(Path(data['path']))
+        video.size = data['size']
+        video.content_score = data['content_score']
+        video.hash_id = data['hash_id']
+        video.duration = data['duration']
+        video.resolution = tuple(data['resolution'])
+        video.bitrate = data['bitrate']
+        video.frame_rate = data['frame_rate']
+        video.frame_hashes = {float(k): imagehash.hex_to_hash(v) for k, v in data['frame_hashes'].items()}
+        video.audio_fingerprint = data['audio_fingerprint']
+        return video
