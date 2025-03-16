@@ -4,8 +4,10 @@ Main entry point for video deduplication.
 
 import sys
 from pathlib import Path
+from typing import List, Dict
 
 from .common.utils import setup_logging
+from .video.models import VideoFile
 from .common.cli import VideoArgumentParser
 from .common.actions import handle_duplicates
 from .common.cache import CacheManager
