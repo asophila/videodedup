@@ -26,6 +26,7 @@ class VideoFile(MediaFile):
         self.frame_rate: float = 0.0
         self.frame_hashes: Dict[float, Any] = {}
         self.audio_fingerprint: Optional[List[float]] = None
+        self.original_path: Optional[Path] = None  # Store original path when using RAM disk
     
     def load_complete_metadata(self) -> bool:
         """Load full video metadata using ffprobe."""
@@ -233,7 +234,19 @@ class VideoFile(MediaFile):
     
     def get_metadata(self) -> Dict:
         """Get complete metadata including video-specific information."""
-        metadata = super().get_metadata()
+        # Use original path for metadata if available
+        original_path = self.original_path or self.path
+        try:
+            metadata = {
+                'path': str(original_path),
+                'size': self.size,
+                'extension': original_path.suffix.lower(),
+                'last_modified': original_path.stat().st_mtime
+            }
+        except FileNotFoundError:
+            # If original file not found, use current path
+            metadata = super().get_metadata()
+            
         metadata.update({
             'duration': self.duration,
             'resolution': f"{self.resolution[0]}x{self.resolution[1]}",
@@ -246,7 +259,7 @@ class VideoFile(MediaFile):
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
-        return {
+        data = {
             'path': str(self.path),
             'size': self.size,
             'content_score': self.content_score,
@@ -258,11 +271,17 @@ class VideoFile(MediaFile):
             'frame_hashes': {str(k): str(v) for k, v in self.frame_hashes.items()},
             'audio_fingerprint': self.audio_fingerprint
         }
+        # Include original path if available
+        if self.original_path:
+            data['original_path'] = str(self.original_path)
+        return data
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VideoFile':
         """Create a VideoFile instance from dictionary data."""
-        video = cls(Path(data['path']))
+        # Use original path if available, otherwise use path
+        path = data.get('original_path', data['path'])
+        video = cls(Path(path))
         video.size = data['size']
         video.content_score = data['content_score']
         video.hash_id = data['hash_id']
@@ -272,4 +291,7 @@ class VideoFile(MediaFile):
         video.frame_rate = data['frame_rate']
         video.frame_hashes = {float(k): imagehash.hex_to_hash(v) for k, v in data['frame_hashes'].items()}
         video.audio_fingerprint = data['audio_fingerprint']
+        # Store original path if it was different from path
+        if 'original_path' in data:
+            video.original_path = Path(data['original_path'])
         return video

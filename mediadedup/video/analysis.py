@@ -189,10 +189,13 @@ def extract_video_fingerprints(videos: List[VideoFile],
                 processed_large = list(executor.map(process_func, large_videos))
             processed_videos.extend(processed_large)
     
-    # Restore original paths
+    # Restore original paths and store RAM disk paths
     for video in processed_videos:
         if str(video.path).startswith(str(ram_disk.mount_point)):
-            video.path = Path(str(video.path).replace(str(ram_disk.mount_point), '').lstrip('/'))
+            # Store the original path before it was moved to RAM disk
+            video.original_path = video.path
+            # Restore the path to its original location
+            video.path = Path(video.path.name)
     
     return processed_videos
 
