@@ -69,6 +69,8 @@ def main():
         if cached_data:
             logger.info("Found cached analysis results")
             duplicate_groups = _restore_from_cache(cached_data)
+            if duplicate_groups is None:
+                logger.info("Cache was invalid, will re-analyze videos")
     
     # If no cache or cache cleared, perform analysis
     if duplicate_groups is None:
@@ -85,6 +87,9 @@ def main():
     if args.action == 'delete' and args.force_delete:
         logger.info("Clearing cache after delete operation...")
         cache_manager.clear()
+        # Also clear any other cached results for these directories
+        for cache_file in cache_manager.cache_dir.glob('analysis_*.json'):
+            cache_file.unlink()
     
     return 0
 
@@ -101,6 +106,8 @@ def _create_cache_key(video_files: List[VideoFile], args) -> str:
     m.update(str(args.duration_threshold).encode())
     m.update(str(args.similarity_threshold).encode())
     m.update(args.hash_algorithm.encode())
+    m.update(str(getattr(args, 'skip_crc', False)).encode())  # Include skip_crc in cache key
+    m.update(str(args.action).encode())  # Include action in cache key
     return f"analysis_{m.hexdigest()}"
 
 def _prepare_for_cache(duplicate_groups: List['DuplicateGroup']) -> List[Dict]:
@@ -128,6 +135,10 @@ def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
                     video_fields = ['duration', 'resolution', 'bitrate', 'frame_rate']
                     if not all(k in file_data for k in video_fields):
                         return False
+                
+                # Verify the file still exists
+                if not Path(file_data['path']).exists():
+                    return False
         
         return True
     except (KeyError, TypeError, AttributeError):
