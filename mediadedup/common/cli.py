@@ -189,6 +189,12 @@ duplicates with high accuracy."""
             default=1.0,
             help='Percentage threshold for duration matching'
         )
+        video_group.add_argument(
+            '--use-ramdisk',
+            action='store_true',
+            default=False,
+            help='Use RAM disk for faster processing (requires sufficient memory)'
+        )
 
 class ImageArgumentParser(BaseArgumentParser):
     """Argument parser for image deduplication."""

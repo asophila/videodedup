@@ -83,8 +83,26 @@ def _process_video_frames(video: VideoFile, frame_positions: List[float], hash_a
 
 def extract_video_fingerprints(videos: List[VideoFile], 
                              frame_positions: List[float] = None,
-                             hash_algorithm: str = 'phash') -> List[VideoFile]:
-    """Extract fingerprints (frame hashes) from videos using RAM disk for better performance."""
+                             hash_algorithm: str = 'phash',
+                             use_ramdisk: bool = False) -> List[VideoFile]:
+    """Extract fingerprints (frame hashes) from videos.
+    
+    Args:
+        videos: List of videos to process
+        frame_positions: List of positions to extract frames from (0.0-1.0)
+        hash_algorithm: Hash algorithm to use for frame hashing
+        use_ramdisk: Whether to use RAM disk for faster processing
+    """
+    # If RAM disk is disabled, process all videos directly
+    if not use_ramdisk:
+        logger.info("RAM disk disabled, processing videos directly")
+        process_func = partial(_process_video_frames, 
+                             frame_positions=frame_positions,
+                             hash_algorithm=hash_algorithm)
+        with ProcessPoolExecutor() as executor:
+            return list(executor.map(process_func, videos))
+    
+    # RAM disk processing
     from ..common.ramdisk import RAMDiskManager
     
     if frame_positions is None:
@@ -299,7 +317,8 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
         videos_with_hashes = extract_video_fingerprints(
             videos, 
             frame_positions=[0.1, 0.3, 0.5, 0.7, 0.9],  # More sample points for better accuracy
-            hash_algorithm=args.hash_algorithm
+            hash_algorithm=args.hash_algorithm,
+            use_ramdisk=args.use_ramdisk
         )
         
         # Find duplicates within this group
