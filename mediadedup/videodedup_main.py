@@ -4,7 +4,7 @@ Main entry point for video deduplication.
 
 import sys
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from .common.utils import setup_logging
 from .video.models import VideoFile
@@ -81,6 +81,11 @@ def main():
     # Handle duplicates according to the specified action
     handle_duplicates(duplicate_groups, args)
     
+    # Clear cache if delete action was performed
+    if args.action == 'delete' and args.force_delete:
+        logger.info("Clearing cache after delete operation...")
+        cache_manager.clear()
+    
     return 0
 
 def _create_cache_key(video_files: List[VideoFile], args) -> str:
@@ -102,14 +107,50 @@ def _prepare_for_cache(duplicate_groups: List['DuplicateGroup']) -> List[Dict]:
     """Convert duplicate groups to a cacheable format."""
     return [group.to_dict() for group in duplicate_groups]
 
-def _restore_from_cache(cached_data: List[Dict]) -> List['DuplicateGroup']:
+def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
+    """Check if the cached data has the expected format."""
+    try:
+        for group_data in cached_data:
+            # Check required group fields
+            if not all(k in group_data for k in ['similarity_score', 'files', 'best_version_hash']):
+                return False
+            
+            # Check each file in the group
+            for file_data in group_data['files']:
+                # Check required file fields
+                required_fields = ['path', 'size', 'content_score', 'hash_id', 'metadata']
+                if not all(k in file_data for k in required_fields):
+                    return False
+                
+                # Check video-specific fields for video files
+                path = Path(file_data['path'])
+                if path.suffix.lower() in {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'}:
+                    video_fields = ['duration', 'resolution', 'bitrate', 'frame_rate']
+                    if not all(k in file_data for k in video_fields):
+                        return False
+        
+        return True
+    except (KeyError, TypeError, AttributeError):
+        return False
+
+def _restore_from_cache(cached_data: List[Dict]) -> Optional[List['DuplicateGroup']]:
     """Restore duplicate groups from cached data."""
     from .common.models import DuplicateGroup
-    groups = []
-    for group_data in cached_data:
-        group = DuplicateGroup.from_dict(group_data)
-        groups.append(group)
-    return groups
+    
+    # Validate cache format
+    if not _is_valid_cache_format(cached_data):
+        logger.warning("Cache format is invalid or incompatible, will re-analyze videos")
+        return None
+    
+    try:
+        groups = []
+        for group_data in cached_data:
+            group = DuplicateGroup.from_dict(group_data)
+            groups.append(group)
+        return groups
+    except Exception as e:
+        logger.warning(f"Error restoring from cache: {e}")
+        return None
 
 if __name__ == "__main__":
     sys.exit(main())
