@@ -15,24 +15,34 @@ class MediaFile:
     size: int = 0
     content_score: float = 0.0  # Quality score
     hash_id: str = ""  # Unique hash for this file
+    original_path: Optional[Path] = None  # Original path when using RAM disk
     
     def __post_init__(self):
         """Initialize size from path if not provided."""
         if self.size == 0 and self.path.exists():
             self.size = self.path.stat().st_size
         
-        # Generate a unique hash ID for this file
+        # Store original path if not set
+        if not self.original_path:
+            self.original_path = self.path
+        
+        # Generate a unique hash ID from the original path
         if not self.hash_id:
-            self.hash_id = hashlib.md5(str(self.path).encode()).hexdigest()
+            self.hash_id = hashlib.md5(str(self.original_path).encode()).hexdigest()
 
     def get_metadata(self) -> Dict:
         """Get basic metadata without loading the file."""
+        # Always use original path for metadata
         return {
-            'path': str(self.path),
+            'path': str(self.original_path),
             'size': self.size,
-            'extension': self.path.suffix.lower(),
-            'last_modified': self.path.stat().st_mtime
+            'extension': self.original_path.suffix.lower(),
+            'last_modified': self.original_path.stat().st_mtime if self.original_path.exists() else 0
         }
+    
+    def get_display_path(self) -> Path:
+        """Get the path to display in reports and use for operations."""
+        return self.original_path or self.path
     
     def calculate_content_score(self) -> float:
         """Calculate a quality score. Should be implemented by subclasses."""
@@ -69,7 +79,7 @@ class DuplicateGroup:
         return {
             'similarity_score': self.similarity_score,
             'files': [{
-                'path': str(v.path),
+                'path': str(v.get_display_path()),  # Use display path for serialization
                 'size': v.size,
                 'content_score': v.content_score,
                 'hash_id': v.hash_id,

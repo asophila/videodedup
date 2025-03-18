@@ -127,13 +127,13 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         
         for i, group in enumerate(duplicate_groups):
             report_lines.append(f"\nGroup {i+1} - Similarity: {group.similarity_score:.1f}%")
-            report_lines.append(f"Best Version: {group.best_version.path}")
+            report_lines.append(f"Best Version: {group.best_version.get_display_path()}")
             report_lines.append(f"Size: {utils.format_size(group.best_version.size)}")
             report_lines.append("\nDuplicates:")
             
             for file in group.files:
                 if file != group.best_version:
-                    report_lines.append(f"- {file.path}")
+                    report_lines.append(f"- {file.get_display_path()}")
                     report_lines.append(f"  Size: {utils.format_size(file.size)}")
         
         # Output to file or stdout
@@ -162,13 +162,13 @@ def interactive_deduplication(duplicate_groups: List[DuplicateGroup]) -> None:
         best_file = group.best_version
         
         print("\n[KEEP] Best version:")
-        print(f"* {best_file.path}")
+        print(f"* {best_file.get_display_path()}")
         print(f"  Size: {utils.format_size(best_file.size)}")
         
         print("\n[DUPLICATES]")
         for j, file in enumerate(files):
             if file != best_file:
-                print(f"{j+1}. {file.path}")
+                print(f"{j+1}. {file.get_display_path()}")
                 print(f"   Size: {utils.format_size(file.size)}")
         
         # Ask for action
@@ -204,7 +204,7 @@ def interactive_deduplication(duplicate_groups: List[DuplicateGroup]) -> None:
             elif choice == 's':
                 print("\nSelect file to keep:")
                 for j, file in enumerate(files):
-                    print(f"{j+1}. {file.path}")
+                    print(f"{j+1}. {file.get_display_path()}")
                 
                 try:
                     selection = int(input("\nEnter number: "))
@@ -217,10 +217,10 @@ def interactive_deduplication(duplicate_groups: List[DuplicateGroup]) -> None:
                             for file in files:
                                 if file != best_file:
                                     try:
-                                        print(f"Deleting {file.path}...")
-                                        file.path.unlink()
+                                        print(f"Deleting {file.get_display_path()}...")
+                                        file.get_display_path().unlink()
                                     except Exception as e:
-                                        print(f"Error deleting {file.path}: {e}")
+                                        print(f"Error deleting {file.get_display_path()}: {e}")
                             print("Duplicates deleted")
                             break
                     else:
@@ -251,7 +251,8 @@ def move_duplicates(duplicate_groups: List[DuplicateGroup], target_dir: Path) ->
         for file in group.files:
             if file != best_file:
                 try:
-                    target_path = group_dir / file.path.name
+                    display_path = file.get_display_path()
+                    target_path = group_dir / display_path.name
                     # Ensure unique name in target directory
                     if target_path.exists():
                         stem = target_path.stem
@@ -259,8 +260,8 @@ def move_duplicates(duplicate_groups: List[DuplicateGroup], target_dir: Path) ->
                         target_path = group_dir / f"{stem}_{file.hash_id[:8]}{suffix}"
                     
                     # Move the file
-                    shutil.move(str(file.path), str(target_path))
-                    logger.info(f"Moved: {file.path} -> {target_path}")
+                    shutil.move(str(display_path), str(target_path))
+                    logger.info(f"Moved: {display_path} -> {target_path}")
                 except Exception as e:
                     logger.error(f"Error moving {file.path}: {e}")
 
@@ -274,7 +275,8 @@ def create_symlinks(duplicate_groups: List[DuplicateGroup], target_dir: Path) ->
             if file != best_file:
                 try:
                     # Create target path
-                    target_path = target_dir / file.path.name
+                    display_path = file.get_display_path()
+                    target_path = target_dir / display_path.name
                     # Ensure unique name
                     if target_path.exists():
                         stem = target_path.stem
@@ -282,8 +284,8 @@ def create_symlinks(duplicate_groups: List[DuplicateGroup], target_dir: Path) ->
                         target_path = target_dir / f"{stem}_{file.hash_id[:8]}{suffix}"
                     
                     # Create symbolic link
-                    target_path.symlink_to(file.path.absolute())
-                    logger.info(f"Created symlink: {target_path} -> {file.path}")
+                    target_path.symlink_to(display_path.absolute())
+                    logger.info(f"Created symlink: {target_path} -> {display_path}")
                 except Exception as e:
                     logger.error(f"Error creating symlink for {file.path}: {e}")
 
@@ -297,7 +299,8 @@ def create_hardlinks(duplicate_groups: List[DuplicateGroup], target_dir: Path) -
             if file != best_file:
                 try:
                     # Create hard link path
-                    target_path = target_dir / file.path.name
+                    display_path = file.get_display_path()
+                    target_path = target_dir / display_path.name
                     # Ensure unique name
                     if target_path.exists():
                         stem = target_path.stem
@@ -305,8 +308,8 @@ def create_hardlinks(duplicate_groups: List[DuplicateGroup], target_dir: Path) -
                         target_path = target_dir / f"{stem}_{file.hash_id[:8]}{suffix}"
                     
                     # Create hard link
-                    os.link(str(file.path.absolute()), str(target_path))
-                    logger.info(f"Created hardlink: {target_path} -> {file.path}")
+                    os.link(str(display_path.absolute()), str(target_path))
+                    logger.info(f"Created hardlink: {target_path} -> {display_path}")
                 except Exception as e:
                     logger.error(f"Error creating hardlink for {file.path}: {e}")
 
@@ -321,8 +324,9 @@ def delete_duplicates(duplicate_groups: List[DuplicateGroup]) -> None:
         for file in group.files:
             if file != best_file:
                 try:
-                    logger.info(f"Deleting: {file.path}")
-                    file.path.unlink()
+                    display_path = file.get_display_path()
+                    logger.info(f"Deleting: {display_path}")
+                    display_path.unlink()
                     total_deleted += 1
                     total_freed += file.size
                 except Exception as e:
@@ -362,15 +366,15 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
             best_file = group.best_version
             
             script_lines.append(f"echo \"Group {i+1}/{len(duplicate_groups)}\"")
-            script_lines.append(f"echo \"Keeping: {best_file.path}\"")
+            script_lines.append(f"echo \"Keeping: {best_file.get_display_path()}\"")
             
             for file in group.files:
                 if file != best_file:
                     script_lines.append("if [ \"$DRY_RUN\" = \"true\" ]; then")
-                    script_lines.append(f"    echo \"Would delete: {file.path}\"")
+                    script_lines.append(f"    echo \"Would delete: {file.get_display_path()}\"")
                     script_lines.append("else")
-                    script_lines.append(f"    echo \"Deleting: {file.path}\"")
-                    script_lines.append(f"    rm \"{file.path}\"")
+                    script_lines.append(f"    echo \"Deleting: {file.get_display_path()}\"")
+                    script_lines.append(f"    rm \"{file.get_display_path()}\"")
                     script_lines.append("fi")
             
             script_lines.append("")
@@ -405,15 +409,15 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
             best_file = group.best_version
             
             script_lines.append(f"Write-Host \"Group {i+1}/{len(duplicate_groups)}\" -ForegroundColor Cyan")
-            script_lines.append(f"Write-Host \"Keeping: {best_file.path}\" -ForegroundColor Green")
+            script_lines.append(f"Write-Host \"Keeping: {best_file.get_display_path()}\" -ForegroundColor Green")
             
             for file in group.files:
                 if file != best_file:
                     script_lines.append("if ($DryRun) {")
-                    script_lines.append(f"    Write-Host \"Would delete: {file.path}\" -ForegroundColor Yellow")
+                    script_lines.append(f"    Write-Host \"Would delete: {file.get_display_path()}\" -ForegroundColor Yellow")
                     script_lines.append("} else {")
-                    script_lines.append(f"    Write-Host \"Deleting: {file.path}\" -ForegroundColor Red")
-                    script_lines.append(f"    Remove-Item -Path \"{file.path}\" -Force")
+                    script_lines.append(f"    Write-Host \"Deleting: {file.get_display_path()}\" -ForegroundColor Red")
+                    script_lines.append(f"    Remove-Item -Path \"{file.get_display_path()}\" -Force")
                     script_lines.append("}")
             
             script_lines.append("")
@@ -450,16 +454,16 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
             best_file = group.best_version
             
             script_lines.append(f"    print(f'Group {i+1}/{len(duplicate_groups)}')")
-            script_lines.append(f"    print(f'Keeping: {best_file.path}')")
+            script_lines.append(f"    print(f'Keeping: {best_file.get_display_path()}')")
             
             for file in group.files:
                 if file != best_file:
                     script_lines.append("    if args.dry_run:")
-                    script_lines.append(f"        print(f'Would delete: {file.path}')")
+                    script_lines.append(f"        print(f'Would delete: {file.get_display_path()}')")
                     script_lines.append("    else:")
-                    script_lines.append(f"        print(f'Deleting: {file.path}')")
+                    script_lines.append(f"        print(f'Deleting: {file.get_display_path()}')")
                     script_lines.append(f"        try:")
-                    script_lines.append(f"            os.remove(r'{file.path}')")
+                    script_lines.append(f"            os.remove(r'{file.get_display_path()}')")
                     script_lines.append(f"        except Exception as e:")
                     script_lines.append(f"            print(f'Error: {{e}}')")
             

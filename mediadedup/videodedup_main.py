@@ -136,6 +136,8 @@ def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
 def _restore_from_cache(cached_data: List[Dict]) -> Optional[List['DuplicateGroup']]:
     """Restore duplicate groups from cached data."""
     from .common.models import DuplicateGroup
+    import logging
+    logger = logging.getLogger(__name__)
     
     # Validate cache format
     if not _is_valid_cache_format(cached_data):
