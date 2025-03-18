@@ -264,8 +264,10 @@ class VideoFile(MediaFile):
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
+        # Always use the original path if available
+        display_path = self.get_display_path()
         data = {
-            'path': str(self.path),
+            'path': str(display_path),
             'size': self.size,
             'content_score': self.content_score,
             'hash_id': self.hash_id,
@@ -276,17 +278,16 @@ class VideoFile(MediaFile):
             'frame_hashes': {str(k): str(v) for k, v in self.frame_hashes.items()},
             'audio_fingerprint': self.audio_fingerprint
         }
-        # Include original path if available
-        if self.original_path:
+        # Store RAM disk path as original_path if it exists
+        if self.original_path and str(self.original_path).startswith('/tmp/videodedup_ramdisk_'):
             data['original_path'] = str(self.original_path)
         return data
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VideoFile':
         """Create a VideoFile instance from dictionary data."""
-        # Use original path if available, otherwise use path
-        path = data.get('original_path', data['path'])
-        video = cls(Path(path))
+        # Always use the main path for the file
+        video = cls(Path(data['path']))
         video.size = data['size']
         video.content_score = data['content_score']
         video.hash_id = data['hash_id']
@@ -296,7 +297,7 @@ class VideoFile(MediaFile):
         video.frame_rate = data['frame_rate']
         video.frame_hashes = {float(k): imagehash.hex_to_hash(v) for k, v in data['frame_hashes'].items()}
         video.audio_fingerprint = data['audio_fingerprint']
-        # Store original path if it was different from path
-        if 'original_path' in data:
+        # Store RAM disk path as original_path if it exists
+        if 'original_path' in data and str(data['original_path']).startswith('/tmp/videodedup_ramdisk_'):
             video.original_path = Path(data['original_path'])
         return video

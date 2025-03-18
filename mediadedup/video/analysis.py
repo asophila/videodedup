@@ -158,12 +158,12 @@ def extract_video_fingerprints(videos: List[VideoFile],
             try:
                 # Copy video to RAM disk
                 ram_path = ram_disk.copy_to_ramdisk(video.path)
-                # Update video path to RAM disk path
-                orig_path = video.path
+                # Store original path and update to RAM disk path
+                video.original_path = video.path
                 video.path = ram_path
                 batch.append(video)
                 batch_size += video.size
-                logger.debug(f"Added {orig_path.name} to RAM disk batch")
+                logger.debug(f"Added {video.original_path.name} to RAM disk batch")
             except ValueError as e:
                 # File too large for current RAM disk state
                 logger.warning(str(e))
@@ -180,10 +180,11 @@ def extract_video_fingerprints(videos: List[VideoFile],
                     # Try again with empty RAM disk
                     try:
                         ram_path = ram_disk.copy_to_ramdisk(video.path)
+                        video.original_path = video.path
                         video.path = ram_path
                         batch.append(video)
                         batch_size += video.size
-                        logger.debug(f"Added {orig_path.name} to RAM disk batch after clearing")
+                        logger.debug(f"Added {video.original_path.name} to RAM disk batch after clearing")
                     except ValueError:
                         # Still too large, process directly
                         logger.warning(f"Video {video.path.name} too large for RAM disk, processing directly")
@@ -207,16 +208,13 @@ def extract_video_fingerprints(videos: List[VideoFile],
                 processed_large = list(executor.map(process_func, large_videos))
             processed_videos.extend(processed_large)
     
-    # Store original paths before processing
-    original_paths = {video.hash_id: video.path for video in videos}
-    
     # Restore original paths after processing
     for video in processed_videos:
         if str(video.path).startswith(str(ram_disk.mount_point)):
-            # Store RAM disk path
-            video.original_path = video.path
-            # Restore the full original path
-            video.path = original_paths[video.hash_id]
+            # Swap paths - RAM disk path becomes original_path, original path is restored
+            ram_path = video.path
+            video.path = video.original_path
+            video.original_path = ram_path
     
     return processed_videos
 
