@@ -7,7 +7,7 @@ import shutil
 import json
 import logging
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 
 from . import utils
@@ -39,7 +39,9 @@ def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
     
     # Handle according to action
     if args.action == 'report':
-        generate_report(duplicate_groups, args.output_format, args.output_file, args.html_report_dir)
+        report_path = generate_report(duplicate_groups, args.output_format, args.output_file, args.html_report_dir)
+        if report_path:
+            print(f"\nReport saved to: {report_path}")
     
     elif args.action == 'interactive':
         interactive_deduplication(duplicate_groups)
@@ -66,12 +68,14 @@ def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
         delete_duplicates(duplicate_groups)
     
     elif args.action == 'script':
-        generate_action_script(duplicate_groups, args.script_type, args.output_file)
+        script_path = generate_action_script(duplicate_groups, args.script_type, args.output_file)
+        if script_path:
+            print(f"\nScript saved to: {script_path}")
 
 def generate_report(duplicate_groups: List[DuplicateGroup], 
                    format_type: str = 'text', 
                    output_file: Optional[Path] = None,
-                   html_report_dir: Optional[Path] = None) -> None:
+                   html_report_dir: Optional[Path] = None) -> Optional[Path]:
     """Generate a report of duplicate files."""
     if format_type == 'json':
         # Convert to JSON
@@ -89,9 +93,11 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 json.dump(json_data, f, indent=2)
-            logger.info(f"Report saved to: {output_file.absolute()}")
+            logger.debug(f"JSON report saved to: {output_file.absolute()}")
+            return output_file.absolute()
         else:
             print(json.dumps(json_data, indent=2))
+            return None
     
     elif format_type == 'csv':
         # Generate CSV content
@@ -107,9 +113,81 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 f.write('\n'.join(csv_lines))
-            logger.info(f"Report saved to: {output_file.absolute()}")
+            logger.debug(f"CSV report saved to: {output_file.absolute()}")
+            return output_file.absolute()
         else:
             print('\n'.join(csv_lines))
+            return None
+    
+    elif format_type == 'html':
+        if not html_report_dir:
+            logger.error("HTML report directory is required for HTML format")
+            return None
+            
+        # Create report directory
+        html_report_dir = Path(html_report_dir)
+        html_report_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate HTML content
+        html_lines = [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            "<title>Media Deduplication Report</title>",
+            "<style>",
+            "body { font-family: Arial, sans-serif; margin: 20px; }",
+            ".group { border: 1px solid #ccc; margin: 10px 0; padding: 10px; }",
+            ".best-version { background: #e8f5e9; padding: 10px; margin: 5px 0; }",
+            ".duplicate { background: #ffebee; padding: 10px; margin: 5px 0; }",
+            ".stats { font-weight: bold; margin: 10px 0; }",
+            "</style>",
+            "</head>",
+            "<body>",
+            "<h1>Media Deduplication Report</h1>",
+            f"<p>Generated on: {datetime.now().isoformat()}</p>",
+            "<div class='stats'>",
+            f"<p>Total duplicate groups: {len(duplicate_groups)}</p>",
+            f"<p>Total duplicate files: {sum(len(group.files) - 1 for group in duplicate_groups)}</p>",
+            f"<p>Total wasted space: {utils.format_size(sum(sum(v.size for v in group.files[1:]) for group in duplicate_groups))}</p>",
+            "</div>",
+            "<h2>Duplicate Groups</h2>"
+        ]
+        
+        for i, group in enumerate(duplicate_groups):
+            html_lines.extend([
+                f"<div class='group'>",
+                f"<h3>Group {i+1} - Similarity: {group.similarity_score:.1f}%</h3>",
+                "<div class='best-version'>",
+                "<h4>Best Version:</h4>",
+                f"<p>Path: {group.best_version.get_display_path()}</p>",
+                f"<p>Size: {utils.format_size(group.best_version.size)}</p>",
+                "</div>",
+                "<h4>Duplicates:</h4>"
+            ])
+            
+            for file in group.files:
+                if file != group.best_version:
+                    html_lines.extend([
+                        "<div class='duplicate'>",
+                        f"<p>Path: {file.get_display_path()}</p>",
+                        f"<p>Size: {utils.format_size(file.size)}</p>",
+                        "</div>"
+                    ])
+            
+            html_lines.append("</div>")
+        
+        html_lines.extend([
+            "</body>",
+            "</html>"
+        ])
+        
+        # Write HTML report
+        report_path = html_report_dir / "report.html"
+        with open(report_path, 'w') as f:
+            f.write('\n'.join(html_lines))
+        
+        logger.debug(f"HTML report saved to: {report_path.absolute()}")
+        return report_path.absolute()
     
     else:  # Default to text format
         # Generate human-readable text report
@@ -137,9 +215,11 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 f.write('\n'.join(report_lines))
-            logger.info(f"Report saved to: {output_file.absolute()}")
+            logger.debug(f"Text report saved to: {output_file.absolute()}")
+            return output_file.absolute()
         else:
             print('\n'.join(report_lines))
+            return None
 
 def interactive_deduplication(duplicate_groups: List[DuplicateGroup]) -> None:
     """Interactive CLI interface for handling duplicates."""
@@ -334,7 +414,7 @@ def delete_duplicates(duplicate_groups: List[DuplicateGroup]) -> None:
 
 def generate_action_script(duplicate_groups: List[DuplicateGroup], 
                           script_type: str = 'bash',
-                          output_file: Optional[Path] = None) -> None:
+                          output_file: Optional[Path] = None) -> Optional[Path]:
     """Generate a script to handle duplicates."""
     if script_type == 'bash':
         # Generate bash script
@@ -477,10 +557,13 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
     if output_file:
         with open(output_file, 'w') as f:
             f.write(script_content)
-        logger.info(f"Script saved to: {output_file.absolute()}")
+        logger.debug(f"Script saved to: {output_file.absolute()}")
         
         # Make script executable on Unix-like systems
         if script_type == 'bash' and os.name == 'posix':
             os.chmod(output_file, 0o755)
+        
+        return output_file.absolute()
     else:
         print(script_content)
+        return None
