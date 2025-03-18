@@ -3,6 +3,7 @@ Main entry point for video deduplication.
 """
 
 import sys
+import json
 from pathlib import Path
 from typing import List, Dict, Optional
 
@@ -70,7 +71,7 @@ def main():
             logger.info("Found cached analysis results")
             duplicate_groups = _restore_from_cache(cached_data)
             if duplicate_groups is None:
-                logger.info("Cache was invalid, will re-analyze videos")
+                logger.info("Cache was invalid or files were modified, will re-analyze videos")
     
     # If no cache or cache cleared, perform analysis
     if duplicate_groups is None:
@@ -79,6 +80,8 @@ def main():
         # Cache the results
         logger.info("Caching analysis results...")
         cache_manager.save(_prepare_for_cache(duplicate_groups), cache_key)
+    else:
+        logger.info("Using cached analysis results")
     
     # Handle duplicates according to the specified action
     handle_duplicates(duplicate_groups, args)
@@ -89,26 +92,48 @@ def main():
         cache_manager.clear()
         # Also clear any other cached results for these directories
         for cache_file in cache_manager.cache_dir.glob('analysis_*.json'):
-            cache_file.unlink()
+            try:
+                cache_file.unlink()
+                logger.debug(f"Cleared cache file: {cache_file}")
+            except Exception as e:
+                logger.warning(f"Failed to clear cache file {cache_file}: {e}")
     
     return 0
 
 def _create_cache_key(video_files: List[VideoFile], args) -> str:
-    """Create a cache key based on files and analysis parameters."""
+    """Create a cache key based on files and parameters."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Sort paths to ensure consistent order
     paths = sorted(str(f.path) for f in video_files)
+    
     # Create a hash of paths and relevant parameters
     import hashlib
     m = hashlib.sha256()
-    for path in paths:
-        m.update(path.encode())
-    # Add analysis parameters to the hash
-    m.update(str(args.duration_threshold).encode())
-    m.update(str(args.similarity_threshold).encode())
-    m.update(args.hash_algorithm.encode())
-    m.update(str(getattr(args, 'skip_crc', False)).encode())  # Include skip_crc in cache key
-    m.update(str(args.action).encode())  # Include action in cache key
-    return f"analysis_{m.hexdigest()}"
+    
+    # Add analysis parameters first for better logging
+    params = {
+        'duration_threshold': args.duration_threshold,
+        'similarity_threshold': args.similarity_threshold,
+        'hash_algorithm': args.hash_algorithm,
+        'skip_crc': getattr(args, 'skip_crc', False),
+        'use_ramdisk': getattr(args, 'use_ramdisk', False),
+        'recursive': args.recursive,
+        'file_count': len(paths)
+    }
+    param_str = json.dumps(params, sort_keys=True)
+    m.update(param_str.encode())
+    
+    # Add file paths
+    paths_str = json.dumps(paths, sort_keys=True)
+    m.update(paths_str.encode())
+    
+    cache_key = f"analysis_{m.hexdigest()}"
+    logger.debug(f"Cache key parameters: {param_str}")
+    logger.debug(f"Cache key file count: {len(paths)}")
+    logger.debug(f"Generated cache key: {cache_key}")
+    return cache_key
 
 def _prepare_for_cache(duplicate_groups: List['DuplicateGroup']) -> List[Dict]:
     """Convert duplicate groups to a cacheable format."""
@@ -116,10 +141,14 @@ def _prepare_for_cache(duplicate_groups: List['DuplicateGroup']) -> List[Dict]:
 
 def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
     """Check if the cached data has the expected format."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         for group_data in cached_data:
             # Check required group fields
             if not all(k in group_data for k in ['similarity_score', 'files', 'best_version_hash']):
+                logger.debug("Missing required group fields")
                 return False
             
             # Check each file in the group
@@ -127,6 +156,7 @@ def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
                 # Check required file fields
                 required_fields = ['path', 'size', 'content_score', 'hash_id', 'metadata']
                 if not all(k in file_data for k in required_fields):
+                    logger.debug(f"Missing required file fields: {[f for f in required_fields if f not in file_data]}")
                     return False
                 
                 # Check video-specific fields for video files
@@ -134,14 +164,23 @@ def _is_valid_cache_format(cached_data: List[Dict]) -> bool:
                 if path.suffix.lower() in {'.mp4', '.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm'}:
                     video_fields = ['duration', 'resolution', 'bitrate', 'frame_rate']
                     if not all(k in file_data for k in video_fields):
+                        logger.debug(f"Missing video fields: {[f for f in video_fields if f not in file_data]}")
                         return False
                 
                 # Verify the file still exists
                 if not Path(file_data['path']).exists():
+                    logger.debug(f"File no longer exists: {file_data['path']}")
+                    return False
+                
+                # Verify file size hasn't changed
+                current_size = Path(file_data['path']).stat().st_size
+                if current_size != file_data['size']:
+                    logger.debug(f"File size changed: {file_data['path']} ({file_data['size']} -> {current_size})")
                     return False
         
         return True
-    except (KeyError, TypeError, AttributeError):
+    except (KeyError, TypeError, AttributeError) as e:
+        logger.debug(f"Cache validation error: {e}")
         return False
 
 def _restore_from_cache(cached_data: List[Dict]) -> Optional[List['DuplicateGroup']]:
