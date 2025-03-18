@@ -9,6 +9,7 @@ from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
 from ..common.utils import find_files, VIDEO_EXTENSIONS
+from ..common.models import DuplicateGroup
 from .models import VideoFile
 
 logger = logging.getLogger(__name__)
