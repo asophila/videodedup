@@ -18,6 +18,10 @@ logger = logging.getLogger(__name__)
 def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
     """Handle duplicate files according to the specified action."""
     if not duplicate_groups:
+        if args.action == 'report':
+            report_path = generate_report([], args.output_format, args.output_file, args.html_report_dir)
+            if report_path:
+                print(f"\nReport saved to: {report_path}")
         logger.info("No duplicates found.")
         return
         
