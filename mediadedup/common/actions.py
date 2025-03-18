@@ -63,10 +63,7 @@ def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
         create_hardlinks(duplicate_groups, output_dir)
     
     elif args.action == 'delete':
-        if args.force_delete:
-            delete_duplicates(duplicate_groups)
-        else:
-            logger.warning("Delete action requires --force-delete flag for safety")
+        delete_duplicates(duplicate_groups)
     
     elif args.action == 'script':
         generate_action_script(duplicate_groups, args.script_type, args.output_file)
@@ -92,7 +89,7 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 json.dump(json_data, f, indent=2)
-            logger.info(f"Report saved to {output_file}")
+            logger.info(f"Report saved to: {output_file.absolute()}")
         else:
             print(json.dumps(json_data, indent=2))
     
@@ -110,7 +107,7 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 f.write('\n'.join(csv_lines))
-            logger.info(f"Report saved to {output_file}")
+            logger.info(f"Report saved to: {output_file.absolute()}")
         else:
             print('\n'.join(csv_lines))
     
@@ -140,7 +137,7 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
         if output_file:
             with open(output_file, 'w') as f:
                 f.write('\n'.join(report_lines))
-            logger.info(f"Report saved to {output_file}")
+            logger.info(f"Report saved to: {output_file.absolute()}")
         else:
             print('\n'.join(report_lines))
 
@@ -480,7 +477,7 @@ def generate_action_script(duplicate_groups: List[DuplicateGroup],
     if output_file:
         with open(output_file, 'w') as f:
             f.write(script_content)
-        logger.info(f"Script saved to {output_file}")
+        logger.info(f"Script saved to: {output_file.absolute()}")
         
         # Make script executable on Unix-like systems
         if script_type == 'bash' and os.name == 'posix':
