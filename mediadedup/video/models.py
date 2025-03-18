@@ -236,17 +236,22 @@ class VideoFile(MediaFile):
         """Get complete metadata including video-specific information."""
         # Use original path for metadata if available
         original_path = self.original_path or self.path
+        
+        # Build basic metadata without file access
+        metadata = {
+            'path': str(original_path),
+            'size': self.size,
+            'extension': original_path.suffix.lower(),
+            'last_modified': 0  # Default value if file not accessible
+        }
+        
+        # Try to get last modified time if file exists
         try:
-            metadata = {
-                'path': str(original_path),
-                'size': self.size,
-                'extension': original_path.suffix.lower(),
-                'last_modified': original_path.stat().st_mtime
-            }
-        except FileNotFoundError:
-            # If original file not found, use current path
-            metadata = super().get_metadata()
-            
+            metadata['last_modified'] = original_path.stat().st_mtime
+        except (FileNotFoundError, OSError):
+            logger.warning(f"Could not access file for metadata: {original_path}")
+        
+        # Add video-specific metadata that we already have in memory
         metadata.update({
             'duration': self.duration,
             'resolution': f"{self.resolution[0]}x{self.resolution[1]}",
