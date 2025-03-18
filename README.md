@@ -32,10 +32,12 @@ An image deduplication tool that uses perceptual hashing and color analysis to f
 
 ### VideoDeDup Features
 
+- 🔍 **Multi-tier Detection**: Uses CRC32/SHA-256 for exact matches, then perceptual analysis for similar content
 - 🎬 **Scene Detection**: Uses FFmpeg's scene detection for accurate video matching
 - 🔊 **Audio Analysis**: Includes audio fingerprinting for better accuracy
 - 🚀 **Hardware Acceleration**: Supports Intel QuickSync for faster frame extraction
 - ⏱️ **Duration-based Filtering**: Groups videos by similar duration for efficient comparison
+- ⚡ **Fast Exact Matching**: Instantly identifies bit-for-bit identical files using CRC
 
 ### ImageDeDup Features
 
@@ -339,6 +341,7 @@ Both tools support the same report formats with media-specific information:
 --duration-threshold FLOAT   # Percentage threshold for duration matching (default: 1.0)
 --similarity-threshold FLOAT # Percentage threshold for similarity detection (default: 85.0)
 --hash-algorithm ALGORITHM   # Hash algorithm: phash, dhash, whash, average_hash (default: phash)
+--skip-crc                  # Skip CRC-based exact duplicate detection (use only perceptual analysis)
 ```
 
 ### ImageDeDup Options
@@ -364,6 +367,11 @@ Both tools support the same report formats with media-specific information:
 3. **Adjust Thresholds**
    - Lower `--similarity-threshold` for more matches (may increase false positives)
    - Increase `--duration-threshold` for videos with slight duration differences
+
+4. **CRC Detection**
+   - CRC-based detection is enabled by default for instant exact match detection
+   - Use `--skip-crc` if you only want to find similar videos, not exact duplicates
+   - CRC detection is extremely fast and can significantly reduce processing time
 
 ### ImageDeDup Tips
 

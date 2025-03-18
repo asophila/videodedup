@@ -280,6 +280,29 @@ def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0)
     
     return duplicate_groups
 
+def group_by_crc(videos: List[VideoFile]) -> Dict[str, List[VideoFile]]:
+    """Group videos by CRC32 and SHA-256 hash to find exact duplicates."""
+    crc_groups = {}
+    
+    logger.debug(f"Grouping {len(videos)} videos by CRC hash")
+    
+    for video in videos:
+        # Use both CRC32 and SHA-256 as key to avoid collisions
+        key = f"{video.crc32}_{video.sha256}"
+        if key not in crc_groups:
+            crc_groups[key] = []
+        crc_groups[key].append(video)
+    
+    # Filter out groups with only one video (no duplicates)
+    filtered_groups = {k: v for k, v in crc_groups.items() if len(v) > 1}
+    
+    if filtered_groups:
+        logger.info(f"Found {len(filtered_groups)} groups of exact duplicates")
+        for key, group in filtered_groups.items():
+            logger.debug(f"CRC group {key[:8]}: {len(group)} videos")
+    
+    return filtered_groups
+
 def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']:
     """Main analysis pipeline to find duplicate videos."""
     logger.info("Starting video analysis pipeline")
@@ -295,44 +318,67 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
     
     logger.info(f"Successfully loaded metadata for {len(videos_with_metadata)} videos")
     
-    # Step 2: Group by duration
-    logger.debug("Grouping videos by duration...")
-    duration_groups = group_by_duration(videos_with_metadata, args.duration_threshold)
-    
-    # Step 3: Process each duration group
+    # Initialize variables
     all_duplicate_groups = []
-    total_comparisons = 0
+    videos_for_analysis = videos_with_metadata
+    processed_videos = set()
+
+    # Step 2: Find exact duplicates using CRC (unless skipped)
+    if not args.skip_crc:
+        logger.debug("Finding exact duplicates by CRC...")
+        crc_groups = group_by_crc(videos_with_metadata)
+        
+        # Create duplicate groups for exact matches
+        for videos in crc_groups.values():
+            group = DuplicateGroup()
+            for video in videos:
+                group.add_file(video)
+                processed_videos.add(video.hash_id)
+            group.similarity_score = 100.0  # Exact match
+            group.determine_best_version()
+            all_duplicate_groups.append(group)
+        
+        # Update videos for perceptual analysis
+        videos_for_analysis = [v for v in videos_with_metadata if v.hash_id not in processed_videos]
     
-    for duration, videos in duration_groups.items():
-        if len(videos) < 2:
-            logger.debug(f"Skipping duration group {duration}s (only {len(videos)} video)")
-            continue
+    # Step 3: Group remaining videos by duration for perceptual analysis
+    if videos_for_analysis:
+        logger.debug("Grouping videos by duration...")
+        duration_groups = group_by_duration(videos_for_analysis, args.duration_threshold)
+        
+        # Step 4: Process each duration group
+        total_comparisons = 0
+    
+        for duration, videos in duration_groups.items():
+            if len(videos) < 2:
+                logger.debug(f"Skipping duration group {duration}s (only {len(videos)} video)")
+                continue
+                
+            logger.info(f"Processing {len(videos)} videos with duration ~{duration}s")
+            logger.debug(f"Extracting frame hashes for {len(videos)} videos...")
             
-        logger.info(f"Processing {len(videos)} videos with duration ~{duration}s")
-        logger.debug(f"Extracting frame hashes for {len(videos)} videos...")
-        
-        # Extract frame hashes for this group
-        videos_with_hashes = extract_video_fingerprints(
-            videos, 
-            frame_positions=[0.1, 0.3, 0.5, 0.7, 0.9],  # More sample points for better accuracy
-            hash_algorithm=args.hash_algorithm,
-            use_ramdisk=args.use_ramdisk
-        )
-        
-        # Find duplicates within this group
-        logger.debug(f"Comparing videos in duration group {duration}s...")
-        duplicate_groups = find_duplicates(
-            videos_with_hashes, 
-            similarity_threshold=args.similarity_threshold
-        )
-        
-        if duplicate_groups:
-            logger.debug(f"Found {len(duplicate_groups)} duplicate groups in duration {duration}s")
-            for group in duplicate_groups:
-                logger.debug(f"Duplicate group: {len(group.files)} videos, {group.similarity_score:.1f}% similarity")
-        
-        all_duplicate_groups.extend(duplicate_groups)
-        total_comparisons += (len(videos) * (len(videos) - 1)) // 2
+            # Extract frame hashes for this group
+            videos_with_hashes = extract_video_fingerprints(
+                videos, 
+                frame_positions=[0.1, 0.3, 0.5, 0.7, 0.9],  # More sample points for better accuracy
+                hash_algorithm=args.hash_algorithm,
+                use_ramdisk=args.use_ramdisk
+            )
+            
+            # Find duplicates within this group
+            logger.debug(f"Comparing videos in duration group {duration}s...")
+            duplicate_groups = find_duplicates(
+                videos_with_hashes, 
+                similarity_threshold=args.similarity_threshold
+            )
+            
+            if duplicate_groups:
+                logger.debug(f"Found {len(duplicate_groups)} duplicate groups in duration {duration}s")
+                for group in duplicate_groups:
+                    logger.debug(f"Duplicate group: {len(group.files)} videos, {group.similarity_score:.1f}% similarity")
+            
+            all_duplicate_groups.extend(duplicate_groups)
+            total_comparisons += (len(videos) * (len(videos) - 1)) // 2
     
     # Sort duplicate groups by wasted space (descending)
     all_duplicate_groups.sort(
@@ -341,6 +387,7 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
     )
     
     logger.debug(f"Analysis complete: {len(all_duplicate_groups)} duplicate groups found")
-    logger.debug(f"Total video comparisons performed: {total_comparisons}")
+    if total_comparisons > 0:
+        logger.debug(f"Total perceptual comparisons performed: {total_comparisons}")
     
     return all_duplicate_groups

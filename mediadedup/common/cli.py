@@ -195,6 +195,12 @@ duplicates with high accuracy."""
             default=False,
             help='Use RAM disk for faster processing (requires sufficient memory)'
         )
+        video_group.add_argument(
+            '--skip-crc',
+            action='store_true',
+            default=False,
+            help='Skip CRC-based exact duplicate detection (use only perceptual analysis)'
+        )
 
 class ImageArgumentParser(BaseArgumentParser):
     """Argument parser for image deduplication."""

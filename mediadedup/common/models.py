@@ -4,9 +4,13 @@ Common data models for media deduplication.
 
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import hashlib
 import json
+import zlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class MediaFile:
@@ -16,9 +20,11 @@ class MediaFile:
     content_score: float = 0.0  # Quality score
     hash_id: str = ""  # Unique hash for this file
     original_path: Optional[Path] = None  # Original path when using RAM disk
+    crc32: int = 0  # CRC32 hash of file content
+    sha256: str = ""  # SHA-256 hash of file content
     
     def __post_init__(self):
-        """Initialize size from path if not provided."""
+        """Initialize size and hashes from path if not provided."""
         if self.size == 0 and self.path.exists():
             self.size = self.path.stat().st_size
         
@@ -29,6 +35,36 @@ class MediaFile:
         # Generate a unique hash ID from the original path
         if not self.hash_id:
             self.hash_id = hashlib.md5(str(self.original_path).encode()).hexdigest()
+        
+        # Calculate CRC and SHA-256 if not provided
+        if self.crc32 == 0 or not self.sha256:
+            self.crc32, self.sha256 = self.calculate_crc()
+    
+    def calculate_crc(self, chunk_size: int = 65536) -> Tuple[int, str]:
+        """Calculate CRC32 and SHA-256 hash of the file content.
+        
+        Args:
+            chunk_size: Size of chunks to read from file (default: 64KB)
+            
+        Returns:
+            Tuple of (CRC32 value, SHA-256 hex digest)
+        """
+        crc32 = 0
+        sha256 = hashlib.sha256()
+        
+        try:
+            with open(self.path, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    crc32 = zlib.crc32(chunk, crc32)
+                    sha256.update(chunk)
+            
+            return crc32 & 0xFFFFFFFF, sha256.hexdigest()
+        except Exception as e:
+            logger.warning(f"Error calculating CRC for {self.path}: {e}")
+            return 0, ''
 
     def get_metadata(self) -> Dict:
         """Get basic metadata without loading the file."""
@@ -83,6 +119,8 @@ class DuplicateGroup:
                 'size': v.size,
                 'content_score': v.content_score,
                 'hash_id': v.hash_id,
+                'crc32': v.crc32,
+                'sha256': v.sha256,
                 'metadata': v.get_metadata()
             } for v in self.files],
             'best_version_hash': self.best_version.hash_id if self.best_version else None
@@ -111,6 +149,8 @@ class DuplicateGroup:
                 file.size = file_data['size']
                 file.content_score = file_data['content_score']
                 file.hash_id = file_data['hash_id']
+                file.crc32 = file_data.get('crc32', 0)
+                file.sha256 = file_data.get('sha256', '')
             
             group.files.append(file)
         
