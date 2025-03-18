@@ -85,7 +85,7 @@ class BaseArgumentParser:
                  '  move        - Move duplicate files to target directory\n' +
                  '  symlink     - Replace duplicates with symbolic links\n' +
                  '  hardlink    - Replace duplicates with hard links\n' +
-                 '  delete      - Delete duplicate files (requires --force-delete)\n' +
+                 '  delete      - Delete duplicate files\n' +
                  '  script      - Generate a script to handle duplicates\n' +
                  '(default: report)'
         )
@@ -93,11 +93,6 @@ class BaseArgumentParser:
             '--target-dir', 
             type=str, 
             help='Target directory for move/symlink/hardlink actions'
-        )
-        action_group.add_argument(
-            '--force-delete', 
-            action='store_true', 
-            help='Force deletion of duplicates (required for delete action)'
         )
         action_group.add_argument(
             '--script-type', 

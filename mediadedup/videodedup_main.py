@@ -87,7 +87,7 @@ def main():
     handle_duplicates(duplicate_groups, args)
     
     # Clear cache if delete action was performed
-    if args.action == 'delete' and args.force_delete:
+    if args.action == 'delete':
         logger.info("Clearing cache after delete operation...")
         cache_manager.clear()
         # Also clear any other cached results for these directories
