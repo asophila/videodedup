@@ -26,7 +26,6 @@ class VideoFile(MediaFile):
         self.frame_rate: float = 0.0
         self.frame_hashes: Dict[float, Any] = {}
         self.audio_fingerprint: Optional[List[float]] = None
-        self.original_path: Optional[Path] = None  # Store original path when using RAM disk
     
     def load_complete_metadata(self) -> bool:
         """Load full video metadata using ffprobe."""
@@ -88,17 +87,26 @@ class VideoFile(MediaFile):
     def extract_frame_hashes(self, 
                            frame_positions: List[float], 
                            hash_algorithm: str = 'phash',
-                           use_quicksync: bool = False) -> Dict[float, Any]:
+                           use_quicksync: bool = False,
+                           save_frames: bool = False,
+                           output_dir: Optional[Path] = None,
+                           frame_width: int = 150) -> Dict[float, Any]:
         """Extract perceptual hashes from frames at specified positions."""
         try:
             # Create a temporary directory for frames
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Build FFmpeg command with hardware acceleration and downscaling
+                vf_filters = []
+                vf_filters.append("fps=1")  # Extract 1 frame per second
+                if save_frames and frame_width > 0:
+                    # Add scale filter to resize frames while maintaining aspect ratio
+                    vf_filters.append(f"scale={frame_width}:-1")
+
                 cmd = [
                     "ffmpeg",
                     "-hwaccel", "auto" if use_quicksync else "none",  # Enable hardware acceleration
                     "-i", str(self.path),
-                    "-vf", "fps=1",  # Extract 1 frame per second
+                    "-vf", ",".join(vf_filters),
                     "-vsync", "0",
                     "-frame_pts", "1",  # Include presentation timestamps
                     "-f", "image2",
@@ -137,6 +145,12 @@ class VideoFile(MediaFile):
                                 try:
                                     with Image.open(frame_file) as img:
                                         frames[pos] = img.copy()
+                                        # Save frame if requested
+                                        if save_frames and output_dir:
+                                            frame_name = f"{self.path.stem}_frame_{closest_time}.jpg"
+                                            frame_path = output_dir / frame_name
+                                            img.save(frame_path, "JPEG", quality=85)
+                                            logger.debug(f"Saved frame: {frame_path}")
                                 except Exception as e:
                                     logger.warning(f"Error loading frame {frame_file}: {e}")
                     
@@ -234,22 +248,19 @@ class VideoFile(MediaFile):
     
     def get_metadata(self) -> Dict:
         """Get complete metadata including video-specific information."""
-        # Use original path for metadata if available
-        original_path = self.original_path or self.path
-        
         # Build basic metadata without file access
         metadata = {
-            'path': str(original_path),
+            'path': str(self.path),
             'size': self.size,
-            'extension': original_path.suffix.lower(),
+            'extension': self.path.suffix.lower(),
             'last_modified': 0  # Default value if file not accessible
         }
         
         # Try to get last modified time if file exists
         try:
-            metadata['last_modified'] = original_path.stat().st_mtime
+            metadata['last_modified'] = self.path.stat().st_mtime
         except (FileNotFoundError, OSError):
-            logger.warning(f"Could not access file for metadata: {original_path}")
+            logger.warning(f"Could not access file for metadata: {self.path}")
         
         # Add video-specific metadata that we already have in memory
         metadata.update({
@@ -264,10 +275,8 @@ class VideoFile(MediaFile):
 
     def to_dict(self) -> Dict:
         """Convert to dictionary for serialization."""
-        # Always use the original path if available
-        display_path = self.get_display_path()
-        data = {
-            'path': str(display_path),
+        return {
+            'path': str(self.path),
             'size': self.size,
             'content_score': self.content_score,
             'hash_id': self.hash_id,
@@ -278,15 +287,10 @@ class VideoFile(MediaFile):
             'frame_hashes': {str(k): str(v) for k, v in self.frame_hashes.items()},
             'audio_fingerprint': self.audio_fingerprint
         }
-        # Store RAM disk path as original_path if it exists
-        if self.original_path and str(self.original_path).startswith('/tmp/videodedup_ramdisk_'):
-            data['original_path'] = str(self.original_path)
-        return data
 
     @classmethod
     def from_dict(cls, data: Dict) -> 'VideoFile':
         """Create a VideoFile instance from dictionary data."""
-        # Always use the main path for the file
         video = cls(Path(data['path']))
         video.size = data['size']
         video.content_score = data['content_score']
@@ -297,7 +301,4 @@ class VideoFile(MediaFile):
         video.frame_rate = data['frame_rate']
         video.frame_hashes = {float(k): imagehash.hex_to_hash(v) for k, v in data['frame_hashes'].items()}
         video.audio_fingerprint = data['audio_fingerprint']
-        # Store RAM disk path as original_path if it exists
-        if 'original_path' in data and str(data['original_path']).startswith('/tmp/videodedup_ramdisk_'):
-            video.original_path = Path(data['original_path'])
         return video

@@ -17,14 +17,6 @@ logger = logging.getLogger(__name__)
 
 def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
     """Handle duplicate files according to the specified action."""
-    if not duplicate_groups:
-        if args.action == 'report':
-            report_path = generate_report([], args.output_format, args.output_file, args.html_report_dir)
-            if report_path:
-                print(f"\nReport saved to: {report_path}")
-        logger.info("No duplicates found.")
-        return
-        
     # Calculate total statistics
     total_files = sum(len(group.files) for group in duplicate_groups)
     total_duplicates = sum(len(group.files) - 1 for group in duplicate_groups)
@@ -32,8 +24,32 @@ def handle_duplicates(duplicate_groups: List[DuplicateGroup], args) -> None:
         sum(v.size for v in group.files[1:]) for group in duplicate_groups
     )
     
+    # Always generate duplicates.txt
+    duplicates_txt = Path('duplicates.txt')
+    with open(duplicates_txt, 'w') as f:
+        f.write("=== Files that can be safely deleted ===\n")
+        f.write(f"Total duplicate files: {total_duplicates}\n")
+        f.write(f"Total wasted space: {utils.format_size(total_wasted_space)}\n\n")
+        
+        for i, group in enumerate(duplicate_groups):
+            f.write(f"\nGroup {i+1} - Similarity: {group.similarity_score:.1f}%\n")
+            f.write(f"Keep: {group.best_version.get_display_path()}\n")
+            f.write("Delete:\n")
+            for file in group.files:
+                if file != group.best_version:
+                    f.write(f"- {file.get_display_path()}\n")
+    
+    if not duplicate_groups:
+        if args.action == 'report':
+            report_path = generate_report([], args.output_format, args.output_file, args.html_report_dir)
+            if report_path:
+                print(f"\nReport saved to: {report_path}")
+        logger.info("No duplicates found.")
+        return
+    
     logger.info(f"Found {len(duplicate_groups)} duplicate groups with {total_duplicates} duplicates")
     logger.info(f"Total wasted space: {utils.format_size(total_wasted_space)}")
+    logger.info(f"List of duplicate files saved to: {duplicates_txt}")
     
     # Create output directory if needed
     output_dir = None
@@ -128,9 +144,11 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
             logger.error("HTML report directory is required for HTML format")
             return None
             
-        # Create report directory
+        # Create report directory and frames subdirectory
         html_report_dir = Path(html_report_dir)
+        frames_dir = html_report_dir / "frames"
         html_report_dir.mkdir(parents=True, exist_ok=True)
+        frames_dir.mkdir(exist_ok=True)
         
         # Generate HTML content
         html_lines = [
@@ -144,6 +162,10 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
             ".best-version { background: #e8f5e9; padding: 10px; margin: 5px 0; }",
             ".duplicate { background: #ffebee; padding: 10px; margin: 5px 0; }",
             ".stats { font-weight: bold; margin: 10px 0; }",
+            ".frames { display: flex; gap: 10px; margin: 10px 0; }",
+            ".frame { text-align: center; }",
+            ".frame img { max-width: 150px; height: auto; }",
+            ".frame p { margin: 5px 0; font-size: 0.9em; }",
             "</style>",
             "</head>",
             "<body>",
@@ -157,28 +179,77 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
             "<h2>Duplicate Groups</h2>"
         ]
         
-        for i, group in enumerate(duplicate_groups):
-            html_lines.extend([
-                f"<div class='group'>",
-                f"<h3>Group {i+1} - Similarity: {group.similarity_score:.1f}%</h3>",
-                "<div class='best-version'>",
-                "<h4>Best Version:</h4>",
-                f"<p>Path: {group.best_version.get_display_path()}</p>",
-                f"<p>Size: {utils.format_size(group.best_version.size)}</p>",
-                "</div>",
-                "<h4>Duplicates:</h4>"
-            ])
+        # Group videos by similarity score
+        similarity_groups = {}
+        for group in duplicate_groups:
+            score = group.similarity_score
+            if score not in similarity_groups:
+                similarity_groups[score] = []
+            similarity_groups[score].append(group)
+        
+        # Process groups by similarity score (highest first)
+        for score in sorted(similarity_groups.keys(), reverse=True):
+            groups = similarity_groups[score]
+            html_lines.append(f"<h3>Similarity Score: {score:.1f}%</h3>")
             
-            for file in group.files:
-                if file != group.best_version:
-                    html_lines.extend([
-                        "<div class='duplicate'>",
-                        f"<p>Path: {file.get_display_path()}</p>",
-                        f"<p>Size: {utils.format_size(file.size)}</p>",
-                        "</div>"
-                    ])
-            
-            html_lines.append("</div>")
+            for i, group in enumerate(groups):
+                html_lines.extend([
+                    f"<div class='group'>",
+                    f"<h4>Group {i+1}</h4>"
+                ])
+                
+                # Extract frames for the best version
+                frames_path = frames_dir / f"group_{i}"
+                frames_path.mkdir(exist_ok=True)
+                
+                # Extract frames at beginning, middle, and end
+                frame_positions = [0.1, 0.5, 0.9]  # 10%, 50%, 90%
+                group.best_version.extract_frame_hashes(
+                    frame_positions,
+                    save_frames=True,
+                    output_dir=frames_path,
+                    frame_width=150
+                )
+                
+                # Show frames
+                html_lines.extend([
+                    "<div class='frames'>",
+                    "<div class='frame'>",
+                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.1 * group.best_version.duration)}.jpg' alt='Start frame'>",
+                    "<p>Start</p>",
+                    "</div>",
+                    "<div class='frame'>",
+                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.5 * group.best_version.duration)}.jpg' alt='Middle frame'>",
+                    "<p>Middle</p>",
+                    "</div>",
+                    "<div class='frame'>",
+                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.9 * group.best_version.duration)}.jpg' alt='End frame'>",
+                    "<p>End</p>",
+                    "</div>",
+                    "</div>"
+                ])
+                
+                html_lines.extend([
+                    "<div class='best-version'>",
+                    "<h4>Best Version:</h4>",
+                    f"<p>Path: {group.best_version.get_display_path()}</p>",
+                    f"<p>Size: {utils.format_size(group.best_version.size)}</p>",
+                    f"<p>Resolution: {group.best_version.resolution[0]}x{group.best_version.resolution[1]}</p>",
+                    "</div>",
+                    "<h4>Duplicates:</h4>"
+                ])
+                
+                for file in group.files:
+                    if file != group.best_version:
+                        html_lines.extend([
+                            "<div class='duplicate'>",
+                            f"<p>Path: {file.get_display_path()}</p>",
+                            f"<p>Size: {utils.format_size(file.size)}</p>",
+                            f"<p>Resolution: {file.resolution[0]}x{file.resolution[1]}</p>",
+                            "</div>"
+                        ])
+                
+                html_lines.append("</div>")
         
         html_lines.extend([
             "</body>",

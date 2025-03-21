@@ -4,9 +4,10 @@ Core video analysis functionality.
 
 import logging
 from pathlib import Path
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Set, Tuple, Optional, Callable
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
+from tqdm import tqdm
 
 from ..common.utils import find_files, VIDEO_EXTENSIONS
 from ..common.models import DuplicateGroup
@@ -27,9 +28,8 @@ def group_by_duration(videos: List[VideoFile], threshold: float = 1.0) -> Dict[s
     
     # First, load metadata for all videos
     with ProcessPoolExecutor() as executor:
-        for i, video in enumerate(executor.map(load_video_metadata, videos)):
-            if i % 10 == 0:  # Log progress every 10 videos
-                logger.debug(f"Processing video {i+1}/{len(videos)}")
+        futures = list(executor.map(load_video_metadata, videos))
+        for i, video in enumerate(tqdm(futures, desc="Loading metadata", total=len(videos))):
             if video and video.duration > 0:
                 # Find or create a suitable duration group
                 duration_found = False
@@ -85,137 +85,32 @@ def _process_video_frames(video: VideoFile, frame_positions: List[float], hash_a
 def extract_video_fingerprints(videos: List[VideoFile], 
                              frame_positions: List[float] = None,
                              hash_algorithm: str = 'phash',
-                             use_ramdisk: bool = False) -> List[VideoFile]:
+                             progress_callback: Optional[Callable] = None) -> List[VideoFile]:
     """Extract fingerprints (frame hashes) from videos.
     
     Args:
         videos: List of videos to process
         frame_positions: List of positions to extract frames from (0.0-1.0)
         hash_algorithm: Hash algorithm to use for frame hashing
-        use_ramdisk: Whether to use RAM disk for faster processing
+        progress_callback: Optional callback to update progress
     """
-    # If RAM disk is disabled, process all videos directly
-    if not use_ramdisk:
-        logger.info("RAM disk disabled, processing videos directly")
-        process_func = partial(_process_video_frames, 
-                             frame_positions=frame_positions,
-                             hash_algorithm=hash_algorithm)
-        with ProcessPoolExecutor() as executor:
-            return list(executor.map(process_func, videos))
-    
-    # RAM disk processing
-    from ..common.ramdisk import RAMDiskManager
-    
     if frame_positions is None:
         # Default to sampling at beginning, 25%, 50%, 75% and end
         frame_positions = [0.0, 0.25, 0.5, 0.75, 1.0]
     
     # Create a function with preset arguments
     process_func = partial(_process_video_frames, 
-                          frame_positions=frame_positions,
-                          hash_algorithm=hash_algorithm)
+                         frame_positions=frame_positions,
+                         hash_algorithm=hash_algorithm)
     
-    # Group videos by size to optimize RAM disk usage
-    small_videos = []
-    large_videos = []
-    
-    # Create RAM disk manager to check sizes
-    with RAMDiskManager() as ram_disk:
-        ram_disk_size = ram_disk.size_mb * 1024 * 1024  # Convert to bytes
-        max_single_file = ram_disk_size * 0.8  # Single file shouldn't use more than 80% of RAM disk
-        
-        # Sort videos into small and large groups
-        for video in videos:
-            if video.size <= max_single_file:
-                small_videos.append(video)
-            else:
-                large_videos.append(video)
-        
-        if large_videos:
-            logger.info(f"Found {len(large_videos)} videos too large for RAM disk, will process directly")
-        
-        # Sort small videos by size for optimal batching
-        small_videos.sort(key=lambda v: v.size)
-        processed_videos = []
-        
-        # Process small videos in RAM disk batches
-        batch = []
-        batch_size = 0
-        
-        for video in small_videos:
-            # Check if this video will fit with current batch
-            if not ram_disk.will_file_fit(video.size) and batch:
-                # Process current batch
-                logger.info(f"Processing batch of {len(batch)} videos in RAM disk")
-                with ProcessPoolExecutor() as executor:
-                    processed_batch = list(executor.map(process_func, batch))
-                processed_videos.extend(processed_batch)
-                # Clear batch and RAM disk
-                batch = []
-                batch_size = 0
-                ram_disk.clear()
-            
-            # Try to add video to current batch
-            try:
-                # Copy video to RAM disk
-                ram_path = ram_disk.copy_to_ramdisk(video.path)
-                # Store original path and update to RAM disk path
-                video.original_path = video.path
-                video.path = ram_path
-                batch.append(video)
-                batch_size += video.size
-                logger.debug(f"Added {video.original_path.name} to RAM disk batch")
-            except ValueError as e:
-                # File too large for current RAM disk state
-                logger.warning(str(e))
-                if batch:
-                    # Process current batch first
-                    logger.info(f"Processing batch of {len(batch)} videos in RAM disk")
-                    with ProcessPoolExecutor() as executor:
-                        processed_batch = list(executor.map(process_func, batch))
-                    processed_videos.extend(processed_batch)
-                    # Clear batch and RAM disk
-                    batch = []
-                    batch_size = 0
-                    ram_disk.clear()
-                    # Try again with empty RAM disk
-                    try:
-                        ram_path = ram_disk.copy_to_ramdisk(video.path)
-                        video.original_path = video.path
-                        video.path = ram_path
-                        batch.append(video)
-                        batch_size += video.size
-                        logger.debug(f"Added {video.original_path.name} to RAM disk batch after clearing")
-                    except ValueError:
-                        # Still too large, process directly
-                        logger.warning(f"Video {video.path.name} too large for RAM disk, processing directly")
-                        processed_videos.append(process_func(video))
-            except Exception as e:
-                logger.warning(f"Failed to copy {video.path} to RAM disk: {e}")
-                # Process this video directly from disk
-                processed_videos.append(process_func(video))
-        
-        # Process final batch if any
-        if batch:
-            logger.info(f"Processing final batch of {len(batch)} videos in RAM disk")
-            with ProcessPoolExecutor() as executor:
-                processed_batch = list(executor.map(process_func, batch))
-            processed_videos.extend(processed_batch)
-        
-        # Process large videos directly
-        if large_videos:
-            logger.info(f"Processing {len(large_videos)} large videos directly from disk")
-            with ProcessPoolExecutor() as executor:
-                processed_large = list(executor.map(process_func, large_videos))
-            processed_videos.extend(processed_large)
-    
-    # Restore original paths after processing
-    for video in processed_videos:
-        if str(video.path).startswith(str(ram_disk.mount_point)):
-            # Swap paths - RAM disk path becomes original_path, original path is restored
-            ram_path = video.path
-            video.path = video.original_path
-            video.original_path = ram_path
+    # Process all videos using multiprocessing
+    processed_videos = []
+    with ProcessPoolExecutor() as executor:
+        futures = list(executor.map(process_func, videos))
+        for video in futures:
+            processed_videos.append(video)
+            if progress_callback:
+                progress_callback()
     
     return processed_videos
 
@@ -246,7 +141,9 @@ def compare_videos(video1: VideoFile, video2: VideoFile, threshold: int = 10) ->
     
     return similarity
 
-def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0) -> List['DuplicateGroup']:
+def find_duplicates(videos: List[VideoFile], 
+                   similarity_threshold: float = 80.0,
+                   progress_callback: Optional[Callable] = None) -> List['DuplicateGroup']:
     """Find duplicate videos based on similarity threshold."""
     from ..common.models import DuplicateGroup
     
@@ -271,6 +168,9 @@ def find_duplicates(videos: List[VideoFile], similarity_threshold: float = 80.0)
                 current_group.add_file(video2)
                 processed.add(video2.hash_id)
                 max_similarity = max(max_similarity, similarity)
+            
+            if progress_callback:
+                progress_callback()
                 
         if len(current_group.files) > 1:
             current_group.similarity_score = max_similarity
@@ -287,7 +187,7 @@ def group_by_crc(videos: List[VideoFile]) -> Dict[str, List[VideoFile]]:
     
     logger.debug(f"Grouping {len(videos)} videos by CRC hash")
     
-    for video in videos:
+    for video in tqdm(videos, desc="Checking CRC hashes"):
         # Use both CRC32 and SHA-256 as key to avoid collisions
         key = f"{video.crc32}_{video.sha256}"
         if key not in crc_groups:
@@ -315,7 +215,10 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
     videos_with_metadata = []
     
     with ProcessPoolExecutor() as executor:
-        videos_with_metadata = list(filter(None, executor.map(load_video_metadata, video_files)))
+        futures = list(executor.map(load_video_metadata, video_files))
+        for i, video in enumerate(tqdm(futures, desc="Loading metadata", total=len(video_files))):
+            if video:
+                videos_with_metadata.append(video)
     
     logger.info(f"Successfully loaded metadata for {len(videos_with_metadata)} videos")
     
@@ -356,22 +259,24 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
                 continue
                 
             logger.info(f"Processing {len(videos)} videos with duration ~{duration}s")
-            logger.debug(f"Extracting frame hashes for {len(videos)} videos...")
             
             # Extract frame hashes for this group
-            videos_with_hashes = extract_video_fingerprints(
-                videos, 
-                frame_positions=[0.1, 0.3, 0.5, 0.7, 0.9],  # More sample points for better accuracy
-                hash_algorithm=args.hash_algorithm,
-                use_ramdisk=args.use_ramdisk
-            )
+            with tqdm(total=len(videos), desc=f"Processing videos in group {duration}s") as pbar:
+                videos_with_hashes = extract_video_fingerprints(
+                    videos, 
+                    frame_positions=[0.1, 0.3, 0.5, 0.7, 0.9],  # More sample points for better accuracy
+                    hash_algorithm=args.hash_algorithm,
+                    progress_callback=lambda: pbar.update(1)
+                )
             
             # Find duplicates within this group
             logger.debug(f"Comparing videos in duration group {duration}s...")
-            duplicate_groups = find_duplicates(
-                videos_with_hashes, 
-                similarity_threshold=args.similarity_threshold
-            )
+            with tqdm(total=(len(videos) * (len(videos) - 1)) // 2, desc="Comparing videos") as pbar:
+                duplicate_groups = find_duplicates(
+                    videos_with_hashes, 
+                    similarity_threshold=args.similarity_threshold,
+                    progress_callback=lambda: pbar.update(1)
+                )
             
             if duplicate_groups:
                 logger.debug(f"Found {len(duplicate_groups)} duplicate groups in duration {duration}s")

@@ -135,11 +135,6 @@ class BaseArgumentParser:
             action='version',
             version=f'mediadedup {utils.VERSION}'
         )
-        misc_group.add_argument(
-            '--clear-cache', 
-            action='store_true', 
-            help='Clear cache before running'
-        )
     
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments."""
@@ -181,14 +176,8 @@ duplicates with high accuracy."""
         video_group.add_argument(
             '--duration-threshold', 
             type=float, 
-            default=1.0,
-            help='Percentage threshold for duration matching'
-        )
-        video_group.add_argument(
-            '--use-ramdisk',
-            action='store_true',
-            default=False,
-            help='Use RAM disk for faster processing (requires sufficient memory)'
+            default=0.5,
+            help='Percentage threshold for duration matching (default: 0.5)'
         )
         video_group.add_argument(
             '--skip-crc',
