@@ -212,22 +212,20 @@ def generate_report(duplicate_groups: List[DuplicateGroup],
                 )
                 
                 # Show frames
-                html_lines.extend([
-                    "<div class='frames'>",
-                    "<div class='frame'>",
-                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.1 * group.best_version.duration)}.jpg' alt='Start frame'>",
-                    "<p>Start</p>",
-                    "</div>",
-                    "<div class='frame'>",
-                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.5 * group.best_version.duration)}.jpg' alt='Middle frame'>",
-                    "<p>Middle</p>",
-                    "</div>",
-                    "<div class='frame'>",
-                    f"<img src='frames/group_{i}/{group.best_version.path.stem}_frame_{int(0.9 * group.best_version.duration)}.jpg' alt='End frame'>",
-                    "<p>End</p>",
-                    "</div>",
-                    "</div>"
-                ])
+                frame_positions = [0.1, 0.5, 0.9]  # 10%, 50%, 90%
+                frame_times = [int(pos * group.best_version.duration) for pos in frame_positions]
+                frame_labels = ['Start', 'Middle', 'End']
+                
+                html_lines.append("<div class='frames'>")
+                for time, label in zip(frame_times, frame_labels):
+                    frame_path = f"frames/group_{i}/{group.best_version.path.stem}_frame_{time + 1}.jpg"
+                    html_lines.extend([
+                        "<div class='frame'>",
+                        f"<img src='{frame_path}' alt='{label} frame'>",
+                        f"<p>{label}</p>",
+                        "</div>"
+                    ])
+                html_lines.append("</div>")
                 
                 html_lines.extend([
                     "<div class='best-version'>",

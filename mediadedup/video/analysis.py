@@ -242,8 +242,17 @@ def analyze_videos(video_files: List[VideoFile], args) -> List['DuplicateGroup']
             group.determine_best_version()
             all_duplicate_groups.append(group)
         
-        # Update videos for perceptual analysis
-        videos_for_analysis = [v for v in videos_with_metadata if v.hash_id not in processed_videos]
+        # Keep one representative from each CRC group for perceptual analysis
+        videos_for_analysis = []
+        for v in videos_with_metadata:
+            if v.hash_id not in processed_videos:
+                videos_for_analysis.append(v)
+            else:
+                # If this is the best version from a CRC group, keep it for perceptual analysis
+                for group in all_duplicate_groups:
+                    if v == group.best_version:
+                        videos_for_analysis.append(v)
+                        break
     
     # Step 3: Group remaining videos by duration for perceptual analysis
     if videos_for_analysis:
